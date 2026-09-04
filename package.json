@@ -1,0 +1,43 @@
+{
+  "name": "dsh-plugin-live-terminal",
+  "version": "0.1.0",
+  "description": "Live streaming terminal output for DeepSeek Harness",
+  "type": "module",
+  "main": "./index.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "terminal",
+    "streaming",
+    "ui"
+  ],
+  "author": "nguyenduclong-ict",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.2-alpha.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.2-alpha.1"
+  }
+}
