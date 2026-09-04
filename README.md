@@ -19,17 +19,11 @@ By default, DSH buffers standard output and only presents the completed terminal
 
 ## Installation
 
-### Method 1: Via DSH CLI
+Install directly into your DSH web profile via the CLI:
 
 ```bash
 dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
 ```
-
-### Method 2: Via DSH Desktop Plugin Market
-
-1. Open **DSH Desktop**.
-2. Go to **Settings** → **Plugin Market**.
-3. Search for `dsh-plugin-live-terminal` and click **Install**.
 
 ---
 
