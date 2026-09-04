@@ -19,14 +19,36 @@ By default, DSH buffers standard output and only presents the completed terminal
 
 ## Installation
 
-### For DSH Desktop (Windows PowerShell)
+### For DSH Desktop
+
+#### Windows (PowerShell)
 
 ```powershell
 cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
 & "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
 ```
 
-### For DSH CLI
+#### macOS (Terminal)
+
+```bash
+cd "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web"
+"$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
+```
+
+#### Linux (Terminal)
+
+```bash
+cd "$HOME/.config/dsh-desktop/harness/profiles/web"
+"$HOME/.config/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
+```
+
+*After installing, restart **DSH Desktop** to apply the plugin.*
+
+---
+
+### For DSH CLI (All Platforms)
+
+If you are using the standalone `dsh` CLI:
 
 ```bash
 dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
@@ -56,11 +78,27 @@ Plugin hỗ trợ xem **Live Stream Terminal Output** theo thời gian thực ch
 - 📌 **Cố định Header**: Header chứa câu lệnh luôn được giữ cố định ở trên cùng khi cuộn xem log bên dưới.
 - ⚡ **Tự động dọn dẹp**: Khi lệnh chạy xong, giao diện tự động trả lại khối hiển thị mặc định của DSH.
 
-### Cách cài đặt
+### Cách cài đặt trên DSH Desktop
 
-```bash
-dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
+#### Windows (PowerShell):
+```powershell
+cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
+& "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
 ```
+
+#### macOS (Terminal):
+```bash
+cd "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web"
+"$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
+```
+
+#### Linux (Terminal):
+```bash
+cd "$HOME/.config/dsh-desktop/harness/profiles/web"
+"$HOME/.config/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
+```
+
+*Khởi động lại DSH Desktop sau khi cài đặt.*
 
 ---
 
@@ -77,11 +115,27 @@ dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-plugin-liv
 - 📌 **固定命令头**：支持独立滚动日志，保持顶部命令提示栏固定。
 - ⚡ **自动交接**：命令执行完毕后自动切回官方默认结果展示卡片。
 
-### 安装方法
+### DSH Desktop 安装方法
 
-```bash
-dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
+#### Windows (PowerShell):
+```powershell
+cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
+& "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
 ```
+
+#### macOS (Terminal):
+```bash
+cd "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web"
+"$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
+```
+
+#### Linux (Terminal):
+```bash
+cd "$HOME/.config/dsh-desktop/harness/profiles/web"
+"$HOME/.config/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
+```
+
+*安装完成后重启 DSH Desktop 即可。*
 
 ---
 
