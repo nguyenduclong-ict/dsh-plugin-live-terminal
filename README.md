@@ -19,7 +19,14 @@ By default, DSH buffers standard output and only presents the completed terminal
 
 ## Installation
 
-Install directly into your DSH web profile via the CLI:
+### For DSH Desktop (Windows PowerShell)
+
+```powershell
+cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
+& "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
+```
+
+### For DSH CLI
 
 ```bash
 dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
