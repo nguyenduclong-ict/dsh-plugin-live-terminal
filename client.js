@@ -115,34 +115,30 @@ window.__ModuleLoader__.load({
     let pollingTimer = null;
     let activeContainers = new Set();
 
-    function startPolling() {
-      if (pollingTimer) return;
-      pollingTimer = setInterval(async () => {
-        if (activeContainers.size === 0) return;
-        try {
-          const res = await fetch('/api/live-terminal/output');
-          if (!res.ok) return;
-          const data = await res.json();
-          const text = data.output || '';
-          activeContainers.forEach((el) => {
-            const outEl = el.querySelector('.dsh-live-terminal-output');
-            if (outEl && text && outEl.textContent !== text) {
-              outEl.textContent = text;
-              outEl.scrollTop = outEl.scrollHeight;
-            }
-          });
-        } catch (e) {}
-      }, 250);
-    }
-
-    function stopPollingIfEmpty() {
-      if (activeContainers.size === 0 && pollingTimer) {
-        clearInterval(pollingTimer);
-        pollingTimer = null;
+    function getActiveSessionId() {
+      // Find current active session id from conversation DOM or URL
+      const currentCrumb = document.querySelector('[class*="crumbCurrent"]');
+      if (currentCrumb && currentCrumb.textContent) {
+        const text = currentCrumb.textContent.trim();
+        if (text.startsWith('session-')) return text;
       }
+      return null;
     }
 
     function extractCommandInfo(row) {
+      // Find callId from DSH DOM convention
+      let callId = row.getAttribute('data-chat-call-id');
+      if (!callId) {
+        const callRow = row.closest('[data-chat-call-id]');
+        if (callRow) callId = callRow.getAttribute('data-chat-call-id');
+      }
+      if (!callId) {
+        const anchor = row.getAttribute('data-chat-anchor-key') || row.closest('[data-chat-anchor-key]')?.getAttribute('data-chat-anchor-key');
+        if (anchor && anchor.startsWith('call:')) {
+          callId = anchor.slice(5);
+        }
+      }
+
       // Find actual command from tool call
       let command = '';
       const commandEl = row.querySelector('[class*="command"]');
@@ -150,13 +146,89 @@ window.__ModuleLoader__.load({
         command = commandEl.textContent.trim();
       } else {
         const summaryEl = row.querySelector('[class*="summary"]');
-        command = summaryEl ? summaryEl.textContent.trim() : 'python -u test_live_stream.py';
+        command = summaryEl ? summaryEl.textContent.trim() : '';
       }
 
+      let cwd = '';
+      const cwdEl = row.querySelector('[class*="cwd"]');
+      if (cwdEl) {
+        cwd = cwdEl.textContent.trim();
+      }
+
+      const sessionId = getActiveSessionId();
+
       return {
-        cwd: 'exness-bot-trade',
-        command: command
+        callId: callId || null,
+        sessionId: sessionId || null,
+        cwd: cwd || '',
+        command: command || ''
       };
+    }
+
+    function startPolling() {
+      if (pollingTimer) return;
+      pollingTimer = setInterval(async () => {
+        if (activeContainers.size === 0) return;
+
+        activeContainers.forEach(async (el) => {
+          try {
+            const callId = el.dataset.callId;
+            const command = el.dataset.command;
+            const sessionId = el.dataset.sessionId || getActiveSessionId();
+
+            let queryUrl = '/api/live-terminal/output';
+            const params = new URLSearchParams();
+            if (callId) {
+              params.append('id', callId);
+            } else {
+              if (sessionId) params.append('sessionId', sessionId);
+              if (command) params.append('command', command);
+            }
+
+            const queryString = params.toString();
+            if (queryString) {
+              queryUrl += '?' + queryString;
+            }
+
+            const res = await fetch(queryUrl);
+            if (!res.ok) return;
+            const data = await res.json();
+            const text = data.output || '';
+
+            const outEl = el.querySelector('.dsh-live-terminal-output');
+            if (outEl) {
+              if (text && outEl.textContent !== text) {
+                outEl.textContent = text;
+                outEl.scrollTop = outEl.scrollHeight;
+              } else if (!text && outEl.textContent === 'Đang tải output...' && data.found) {
+                outEl.textContent = '';
+              }
+            }
+
+            // Update header info if server returned more specific command or cwd
+            if (data.command && !el.dataset.command) {
+              el.dataset.command = data.command;
+              const cmdEl = el.querySelector('.dsh-live-terminal-command');
+              if (cmdEl && (!cmdEl.textContent || cmdEl.textContent === '')) {
+                cmdEl.textContent = data.command;
+              }
+            }
+            if (data.cwd) {
+              const cwdSpan = el.querySelector('.dsh-live-terminal-cwd');
+              if (cwdSpan && (!cwdSpan.textContent || cwdSpan.textContent === '')) {
+                cwdSpan.textContent = data.cwd;
+              }
+            }
+          } catch (e) {}
+        });
+      }, 200);
+    }
+
+    function stopPollingIfEmpty() {
+      if (activeContainers.size === 0 && pollingTimer) {
+        clearInterval(pollingTimer);
+        pollingTimer = null;
+      }
     }
 
     function updateLiveBlocks() {
@@ -182,6 +254,10 @@ window.__ModuleLoader__.load({
             const info = extractCommandInfo(row);
             liveBox = document.createElement('div');
             liveBox.className = 'dsh-live-terminal-block';
+            if (info.callId) liveBox.dataset.callId = info.callId;
+            if (info.command) liveBox.dataset.command = info.command;
+            if (info.sessionId) liveBox.dataset.sessionId = info.sessionId;
+
             liveBox.innerHTML = `
               <div class="dsh-live-terminal-header">
                 <div class="dsh-live-terminal-prompt-line">
