@@ -1,8 +1,5 @@
 export const name = 'dsh-plugin-live-terminal';
-export const inject = {
-  required: ['webServer', 'subprocess'],
-  optional: ['shellEnv']
-};
+export const inject = ['webServer', 'subprocess'];
 
 // Map of active process outputs: id -> { id, callId, sessionId, cwd, command, output, active, lastUpdated }
 const activeProcesses = new Map();
@@ -35,10 +32,10 @@ function matchesCommand(proc, cmdText) {
 export function apply(ctx) {
   ctx.logger?.info?.('dsh-plugin-live-terminal host loaded, hooking subprocess...');
 
-  // Try registering DSH_CALL_ID contributor if shellEnv is available
-  if (ctx.shellEnv && typeof ctx.shellEnv.register === 'function') {
+  // Optional registration if shellEnv service is mounted
+  ctx.inject(['shellEnv'], (envCtx) => {
     try {
-      ctx.shellEnv.register({
+      envCtx.shellEnv.register({
         name: 'live-terminal-call-id',
         variables: {
           DSH_CALL_ID: {
@@ -56,7 +53,7 @@ export function apply(ctx) {
     } catch (e) {
       ctx.logger?.warn?.(`dsh-plugin-live-terminal failed to register shellEnv contributor: ${e?.message || e}`);
     }
-  }
+  });
 
   const originalSpawn = ctx.subprocess.spawn.bind(ctx.subprocess);
   ctx.subprocess.spawn = function(spec) {
