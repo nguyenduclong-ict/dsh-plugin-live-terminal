@@ -180,9 +180,12 @@ window.__ModuleLoader__.load({
             const params = new URLSearchParams();
             if (callId) {
               params.append('id', callId);
-            } else {
-              if (sessionId) params.append('sessionId', sessionId);
-              if (command) params.append('command', command);
+            }
+            if (sessionId) {
+              params.append('sessionId', sessionId);
+            }
+            if (command) {
+              params.append('command', command);
             }
 
             const queryString = params.toString();
@@ -206,16 +209,16 @@ window.__ModuleLoader__.load({
             }
 
             // Update header info if server returned more specific command or cwd
-            if (data.command && !el.dataset.command) {
+            if (data.command && (!el.dataset.command || el.dataset.command.length < 5)) {
               el.dataset.command = data.command;
               const cmdEl = el.querySelector('.dsh-live-terminal-command');
-              if (cmdEl && (!cmdEl.textContent || cmdEl.textContent === '')) {
+              if (cmdEl && (!cmdEl.textContent || cmdEl.textContent.trim() === '')) {
                 cmdEl.textContent = data.command;
               }
             }
             if (data.cwd) {
               const cwdSpan = el.querySelector('.dsh-live-terminal-cwd');
-              if (cwdSpan && (!cwdSpan.textContent || cwdSpan.textContent === '')) {
+              if (cwdSpan && (!cwdSpan.textContent || cwdSpan.textContent.trim() === '')) {
                 cwdSpan.textContent = data.cwd;
               }
             }

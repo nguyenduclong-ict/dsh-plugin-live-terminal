@@ -9,9 +9,9 @@ function cleanCommand(argv) {
   const cmdIdx = argv.indexOf('-Command');
   if (cmdIdx !== -1 && argv[cmdIdx + 1]) {
     let cmd = argv[cmdIdx + 1];
-    const splitIndex = cmd.indexOf('$OutputEncoding = [System.Text.UTF8Encoding]::new($false);');
-    if (splitIndex !== -1) {
-      cmd = cmd.slice(splitIndex + '$OutputEncoding = [System.Text.UTF8Encoding]::new($false);'.length);
+    const lastSemi = cmd.lastIndexOf(';');
+    if (lastSemi !== -1) {
+      cmd = cmd.slice(lastSemi + 1);
     }
     return cmd.trim();
   }
