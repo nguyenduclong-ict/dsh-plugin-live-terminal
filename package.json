@@ -32,6 +32,7 @@
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-primitives"
       ],
+      "immediately": true,
       "platform": "web"
     }
   },

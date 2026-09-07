@@ -237,24 +237,30 @@ window.__ModuleLoader__.load({
     function updateLiveBlocks() {
       ensureStyles();
 
-      const runningRows = document.querySelectorAll('[data-state="running"]');
+      // Find all running tool call rows
+      const runningNodes = document.querySelectorAll('[data-state="running"]');
 
-      runningRows.forEach((row) => {
-        // Hide the default empty static card while running
-        const defaultCard = row.querySelector('[data-terminal]');
+      runningNodes.forEach((node) => {
+        // Find card container (either node itself or parent card)
+        const card = node.closest('[class*="card"]') || node.closest('[class*="root"]') || node;
+
+        // Hide default static terminal card when running
+        const defaultCard = card.querySelector('[data-terminal]');
         if (defaultCard) {
           defaultCard.style.display = 'none';
         }
 
-        // Check if the user clicked open the row
-        const isExpanded = row.getAttribute('aria-expanded') === 'true' || 
-                           row.querySelector('[aria-expanded="true"]') !== null;
+        // Check if expanded: aria-expanded="true" on node, card, or any child/parent
+        const isExpanded = node.getAttribute('aria-expanded') === 'true' ||
+                           card.getAttribute('aria-expanded') === 'true' ||
+                           card.querySelector('[aria-expanded="true"]') !== null ||
+                           card.querySelector('[class*="bodyWrap"]') !== null;
 
-        let liveBox = row.querySelector('.dsh-live-terminal-block');
+        let liveBox = card.querySelector('.dsh-live-terminal-block');
 
         if (isExpanded) {
           if (!liveBox) {
-            const info = extractCommandInfo(row);
+            const info = extractCommandInfo(card);
             liveBox = document.createElement('div');
             liveBox.className = 'dsh-live-terminal-block';
             if (info.callId) liveBox.dataset.callId = info.callId;
@@ -273,11 +279,17 @@ window.__ModuleLoader__.load({
             `;
 
             // Insert into row body
-            const bodyWrap = row.querySelector('[class*="bodyWrap"]');
+            const bodyWrap = card.querySelector('[class*="bodyWrap"]');
             if (bodyWrap) {
               bodyWrap.insertBefore(liveBox, bodyWrap.firstChild);
             } else {
-              row.appendChild(liveBox);
+              // Try inserting before inspect button or at end of card
+              const inspectBtn = card.querySelector('[class*="inspectButton"]') || card.querySelector('button');
+              if (inspectBtn && inspectBtn.parentNode === card) {
+                card.insertBefore(liveBox, inspectBtn);
+              } else {
+                card.appendChild(liveBox);
+              }
             }
           }
           activeContainers.add(liveBox);
