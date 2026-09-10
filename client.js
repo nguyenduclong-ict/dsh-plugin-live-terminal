@@ -12,14 +12,14 @@ window.__ModuleLoader__.load({
       const style = document.createElement('style');
       style.id = STYLE_ID;
       style.textContent = `
-        /* Khung Terminal đúng chuẩn phong cách DSH TerminalBlock */
+        /* Khung Live Terminal */
         .dsh-live-terminal-block {
           --dsl-terminal-radius: 12px;
           --dsl-terminal-line-height: 22px;
           --dsl-terminal-font: var(--dsw-font-markdown-code-block);
           --dsl-terminal-gutter: 30px;
           position: relative;
-          margin: 4px 0 4px 4px;
+          margin: 6px 0 6px 4px;
           padding-left: var(--dsl-terminal-gutter);
           color: var(--dsw-alias-label-primary);
           background: var(--dsw-alias-markdown-code-block);
@@ -29,13 +29,13 @@ window.__ModuleLoader__.load({
           font: var(--dsw-font-markdown-code-block-small, var(--dsl-terminal-font));
         }
 
-        /* Header cố định chứa prompt: cwd và command */
+        /* Header cố định chứa prompt: cwd, command và badge trạng thái */
         .dsh-live-terminal-header {
           display: flex;
-          align-items: flex-start;
+          align-items: center;
           gap: 12px;
           margin-left: calc(-1 * var(--dsl-terminal-gutter));
-          padding: 9px 14px 9px var(--dsl-terminal-gutter);
+          padding: 8px 14px 8px var(--dsl-terminal-gutter);
           border-bottom: 1px solid var(--dsw-alias-border-l2);
           background-color: var(--dsw-alias-markdown-code-block);
           user-select: none;
@@ -51,7 +51,7 @@ window.__ModuleLoader__.load({
           flex: 1;
         }
 
-        /* Dot căn giữa chuẩn xác với gutter -30px + 8px = -22px */
+        /* Chấm xanh nhấp nháy trong Live Terminal Box */
         .dsh-live-terminal-dot {
           position: absolute;
           left: calc(-1 * var(--dsl-terminal-gutter) + 8px);
@@ -64,6 +64,12 @@ window.__ModuleLoader__.load({
           animation: dsh-live-pulse 1.2s infinite ease-in-out;
         }
 
+        .dsh-live-terminal-dot.settled {
+          background: var(--dsw-alias-label-quaternary, #9ca3af);
+          box-shadow: none;
+          animation: none;
+        }
+
         @keyframes dsh-live-pulse {
           0%, 100% { opacity: 0.4; transform: scale(0.9); }
           50% { opacity: 1; transform: scale(1.15); }
@@ -73,6 +79,7 @@ window.__ModuleLoader__.load({
           flex: none;
           color: var(--dsw-alias-label-tertiary);
           line-height: var(--dsl-terminal-line-height);
+          font-size: 12px;
         }
 
         .dsh-live-terminal-command {
@@ -85,15 +92,40 @@ window.__ModuleLoader__.load({
           line-height: var(--dsl-terminal-line-height);
         }
 
-        /* Phần Output: có thanh cuộn riêng, header KHÔNG bị cuộn theo */
+        .dsh-live-terminal-badge {
+          margin-left: auto;
+          font-size: 11px;
+          line-height: 16px;
+          padding: 1px 7px;
+          border-radius: 4px;
+          font-weight: 500;
+          flex: none;
+          letter-spacing: 0.02em;
+        }
+
+        .dsh-live-terminal-badge.live {
+          color: #22c55e;
+          background: rgba(34, 197, 94, 0.12);
+          border: 1px solid rgba(34, 197, 94, 0.25);
+        }
+
+        .dsh-live-terminal-badge.settled {
+          color: var(--dsw-alias-label-tertiary);
+          background: var(--dsw-alias-fill-l2, rgba(255, 255, 255, 0.06));
+          border: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.1));
+        }
+
+        /* Vùng log output */
         .dsh-live-terminal-output {
-          max-height: 240px;
+          max-height: 260px;
           padding: 12px 14px 12px 0;
           overflow-x: auto;
           overflow-y: auto;
-          white-space: pre;
+          white-space: pre-wrap;
+          word-break: break-word;
           font-family: inherit;
           line-height: 20px;
+          font-size: 12px;
           color: var(--dsw-alias-label-secondary);
         }
 
@@ -107,16 +139,93 @@ window.__ModuleLoader__.load({
         .dsh-live-terminal-output::-webkit-scrollbar-track {
           margin: 6px;
         }
+
+        /* Chấm xanh nhấp nháy trên thanh header data-disclosure-row */
+        .dsh-live-header-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: #22c55e;
+          box-shadow: 0 0 5px rgba(34, 197, 94, 0.7);
+          animation: dsh-live-pulse 1.2s infinite ease-in-out;
+          flex: none;
+          margin-left: auto;
+          margin-right: 6px;
+        }
+
+        /* Hàng footer chứa nút Inspect và nút Stop */
+        .dsh-live-footer-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin: 4px 0 2px 4px;
+          flex: none;
+        }
+
+        .dsh-live-footer-row [class*="inspectButton"] {
+          margin: 0 !important;
+          opacity: 1 !important;
+        }
+
+        /* Nút Stop đặt cạnh nút Inspect ở dưới cùng khi mở block */
+        .dsh-live-stop-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          height: 20px;
+          padding: 2px 9px;
+          border-radius: 999px;
+          font-size: 11px;
+          line-height: 16px;
+          border: 1px solid rgba(239, 68, 68, 0.4);
+          background: rgba(239, 68, 68, 0.12);
+          color: #ef4444;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          user-select: none;
+          font-family: inherit;
+          font-weight: 500;
+          letter-spacing: 0.01em;
+          margin: 0;
+        }
+
+        .dsh-live-stop-btn:hover {
+          background: rgba(239, 68, 68, 0.22);
+          border-color: #ef4444;
+          color: #f87171;
+        }
+
+        .dsh-live-stop-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .dsh-live-stop-btn svg {
+          width: 9px;
+          height: 9px;
+          fill: currentColor;
+          flex: none;
+        }
       `;
       document.head.appendChild(style);
     }
 
     // Active polling tracker
     let pollingTimer = null;
-    let activeContainers = new Set();
+    const activeContainers = new Set();
+    const knownJobStatuses = new Map(); // key -> boolean (active)
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
 
     function getActiveSessionId() {
-      // Find current active session id from conversation DOM or URL
       const currentCrumb = document.querySelector('[class*="crumbCurrent"]');
       if (currentCrumb && currentCrumb.textContent) {
         const text = currentCrumb.textContent.trim();
@@ -125,44 +234,234 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    function extractCommandInfo(row) {
-      // Find callId from DSH DOM convention
-      let callId = row.getAttribute('data-chat-call-id');
+    // CHỈ cho phép shell tool: pwsh (Windows) hoặc bash (Linux / macOS)
+    function isAllowedShellCard(card) {
+      if (!card) return false;
+
+      // 1. Kiểm tra data-tool trực tiếp
+      const toolAttr = (card.getAttribute('data-tool') || card.querySelector('[data-tool]')?.getAttribute('data-tool') || '').toLowerCase().trim();
+      if (toolAttr === 'pwsh' || toolAttr === 'bash') {
+        return true;
+      }
+      if (toolAttr && toolAttr !== 'pwsh' && toolAttr !== 'bash') {
+        return false;
+      }
+
+      // 2. Kiểm tra data-variant
+      const variantAttr = (card.getAttribute('data-variant') || card.querySelector('[data-variant]')?.getAttribute('data-variant') || '').toLowerCase().trim();
+      if (variantAttr === 'bash') {
+        const titleEl = card.querySelector('[class*="title"]');
+        const title = titleEl ? titleEl.textContent.trim().toLowerCase() : '';
+        if (title.includes('think') || title.includes('read') || title.includes('job_') || title.includes('context')) {
+          return false;
+        }
+        return true;
+      }
+
+      // 3. Kiểm tra title hiển thị
+      const titleEl = card.querySelector('[class*="title"]');
+      const title = titleEl ? titleEl.textContent.trim().toLowerCase() : '';
+      if (title === 'pwsh' || title === 'bash') {
+        return true;
+      }
+
+      return false;
+    }
+
+    function extractCommandInfo(card) {
+      let callId = card.getAttribute('data-chat-call-id');
       if (!callId) {
-        const callRow = row.closest('[data-chat-call-id]');
+        const callRow = card.closest('[data-chat-call-id]');
         if (callRow) callId = callRow.getAttribute('data-chat-call-id');
       }
       if (!callId) {
-        const anchor = row.getAttribute('data-chat-anchor-key') || row.closest('[data-chat-anchor-key]')?.getAttribute('data-chat-anchor-key');
+        const anchor = card.getAttribute('data-chat-anchor-key') || card.closest('[data-chat-anchor-key]')?.getAttribute('data-chat-anchor-key');
         if (anchor && anchor.startsWith('call:')) {
           callId = anchor.slice(5);
         }
       }
 
-      // Find actual command from tool call
+      let jobId = null;
       let command = '';
-      const commandEl = row.querySelector('[class*="command"]');
-      if (commandEl) {
-        command = commandEl.textContent.trim();
-      } else {
-        const summaryEl = row.querySelector('[class*="summary"]');
-        command = summaryEl ? summaryEl.textContent.trim() : '';
-      }
-
       let cwd = '';
-      const cwdEl = row.querySelector('[class*="cwd"]');
-      if (cwdEl) {
-        cwd = cwdEl.textContent.trim();
+
+      // Chỉ tìm trong ioSection của ioCard để tránh đọc toàn bộ card (rất nhẹ, không lag)
+      const ioSections = card.querySelectorAll('[class*="ioSection"]');
+      for (const sec of ioSections) {
+        const label = sec.querySelector('[class*="ioLabel"]')?.textContent?.trim();
+        const textEl = sec.querySelector('[class*="ioText"]');
+        const text = textEl ? textEl.textContent.trim() : '';
+        if (!text) continue;
+
+        if (label === 'IN' || label === '输入') {
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed.command) command = parsed.command;
+            if (parsed.workdir) cwd = parsed.workdir;
+          } catch (e) {
+            const m = text.match(/"command"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+            if (m) command = m[1];
+            const w = text.match(/"workdir"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+            if (w) cwd = w[1];
+          }
+        } else if (label === 'OUT' || label === '输出') {
+          const match = text.match(/started background job\s+([a-zA-Z0-9_-]+)/i);
+          if (match) jobId = match[1];
+        }
       }
 
-      const sessionId = getActiveSessionId();
+      if (!command) {
+        const commandEl = card.querySelector('[class*="command"]');
+        if (commandEl) {
+          command = commandEl.textContent.trim();
+        } else {
+          const summaryEl = card.querySelector('[class*="summary"]');
+          command = summaryEl ? summaryEl.textContent.trim() : '';
+        }
+      }
+
+      if (!cwd) {
+        const cwdEl = card.querySelector('[class*="cwd"]');
+        if (cwdEl) cwd = cwdEl.textContent.trim();
+      }
 
       return {
         callId: callId || null,
-        sessionId: sessionId || null,
+        jobId: jobId || null,
+        sessionId: getActiveSessionId(),
         cwd: cwd || '',
         command: command || ''
       };
+    }
+
+    async function stopJob(jobId, callId, btn, card) {
+      if (btn) {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.innerHTML = `
+          <svg viewBox="0 0 16 16" fill="currentColor">
+            <rect x="3" y="3" width="10" height="10" rx="2"></rect>
+          </svg>
+          <span>Đang dừng...</span>
+        `;
+      }
+
+      try {
+        const params = new URLSearchParams();
+        if (jobId) params.append('jobId', jobId);
+        if (callId) params.append('id', callId);
+
+        const res = await fetch('/api/live-terminal/stop?' + params.toString(), { method: 'POST' });
+        if (res.ok) {
+          const key = jobId || callId;
+          if (key) knownJobStatuses.set(key, false);
+
+          updateHeaderDot(card, false);
+
+          if (btn) btn.remove();
+
+          const liveBox = card.querySelector('.dsh-live-terminal-block');
+          if (liveBox) {
+            const dot = liveBox.querySelector('.dsh-live-terminal-dot');
+            if (dot) dot.classList.add('settled');
+
+            const badge = liveBox.querySelector('.dsh-live-terminal-badge');
+            if (badge) {
+              badge.textContent = 'ĐÃ DỪNG';
+              badge.className = 'dsh-live-terminal-badge settled';
+            }
+
+            const outEl = liveBox.querySelector('.dsh-live-terminal-output');
+            if (outEl && !outEl.textContent.includes('[Lệnh đã dừng bởi người dùng]')) {
+              outEl.textContent += (outEl.textContent ? '\n' : '') + '[Lệnh đã dừng bởi người dùng]\n';
+              outEl.scrollTop = outEl.scrollHeight;
+            }
+
+            liveBox.dataset.settled = 'true';
+            activeContainers.delete(liveBox);
+          }
+        }
+      } catch (e) {
+        console.error('[dsh-plugin-live-terminal] Stop job failed:', e);
+        if (btn) {
+          btn.disabled = false;
+          btn.style.opacity = '1';
+        }
+      }
+    }
+
+    // Chỉ hiển thị CHẤM XANH trên header data-disclosure-row
+    function updateHeaderDot(card, isRunning) {
+      const headerRow = card.querySelector('[data-disclosure-row="true"]') ||
+                        card.querySelector('[class*="row"]');
+      if (!headerRow) return;
+
+      const oldActions = headerRow.querySelector('.dsh-live-header-actions');
+      if (oldActions) oldActions.remove();
+
+      let dotEl = headerRow.querySelector('.dsh-live-header-dot');
+
+      if (isRunning) {
+        if (!dotEl) {
+          dotEl = document.createElement('span');
+          dotEl.className = 'dsh-live-header-dot';
+          dotEl.title = 'Lệnh đang chạy...';
+          headerRow.appendChild(dotEl);
+        }
+      } else {
+        if (dotEl) {
+          dotEl.remove();
+        }
+      }
+    }
+
+    // Hiển thị nút STOP cạnh nút Inspect ở footer của bodyWrap
+    function updateStopButtonInBody(bodyWrap, card, info, isRunning) {
+      if (!bodyWrap) return;
+
+      let footerRow = bodyWrap.querySelector('.dsh-live-footer-row');
+      const inspectBtn = bodyWrap.querySelector('[class*="inspectButton"]');
+
+      if (isRunning) {
+        if (!footerRow) {
+          footerRow = document.createElement('div');
+          footerRow.className = 'dsh-live-footer-row';
+
+          if (inspectBtn) {
+            bodyWrap.insertBefore(footerRow, inspectBtn);
+            footerRow.appendChild(inspectBtn);
+          } else {
+            bodyWrap.appendChild(footerRow);
+          }
+        }
+
+        let stopBtn = footerRow.querySelector('.dsh-live-stop-btn');
+        if (!stopBtn) {
+          stopBtn = document.createElement('button');
+          stopBtn.type = 'button';
+          stopBtn.className = 'dsh-live-stop-btn';
+          stopBtn.title = 'Dừng tiến trình (Stop command)';
+          stopBtn.innerHTML = `
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <rect x="3" y="3" width="10" height="10" rx="2"></rect>
+            </svg>
+            <span>Dừng lệnh</span>
+          `;
+
+          stopBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            stopJob(info.jobId, info.callId, stopBtn, card);
+          });
+
+          footerRow.appendChild(stopBtn);
+        }
+      } else {
+        if (footerRow) {
+          const stopBtn = footerRow.querySelector('.dsh-live-stop-btn');
+          if (stopBtn) stopBtn.remove();
+        }
+      }
     }
 
     function startPolling() {
@@ -172,58 +471,109 @@ window.__ModuleLoader__.load({
 
         activeContainers.forEach(async (el) => {
           try {
-            const callId = el.dataset.callId;
-            const command = el.dataset.command;
+            if (!document.body.contains(el)) {
+              activeContainers.delete(el);
+              return;
+            }
+
+            if (el.dataset.settled === 'true') {
+              activeContainers.delete(el);
+              return;
+            }
+
+            const card = el.closest('[data-chat-call-id]') ||
+                         el.closest('[class*="callRow"]') ||
+                         el.closest('[class*="card"]') ||
+                         el.parentElement;
+
+            let jobId = el.dataset.jobId;
+            let callId = el.dataset.callId;
+            let command = el.dataset.command;
             const sessionId = el.dataset.sessionId || getActiveSessionId();
+
+            if (!jobId && card) {
+              const info = extractCommandInfo(card);
+              if (info.jobId) {
+                jobId = info.jobId;
+                el.dataset.jobId = jobId;
+                el.dataset.isBackground = 'true';
+              }
+            }
 
             let queryUrl = '/api/live-terminal/output';
             const params = new URLSearchParams();
-            if (callId) {
-              params.append('id', callId);
-            }
-            if (sessionId) {
-              params.append('sessionId', sessionId);
-            }
-            if (command) {
-              params.append('command', command);
-            }
+            if (jobId) params.append('jobId', jobId);
+            if (callId) params.append('id', callId);
+            if (sessionId) params.append('sessionId', sessionId);
+            if (command) params.append('command', command);
 
             const queryString = params.toString();
-            if (queryString) {
-              queryUrl += '?' + queryString;
-            }
+            if (queryString) queryUrl += '?' + queryString;
 
             const res = await fetch(queryUrl);
             if (!res.ok) return;
             const data = await res.json();
-            const text = data.output || '';
 
             const outEl = el.querySelector('.dsh-live-terminal-output');
-            if (outEl) {
-              if (text && outEl.textContent !== text) {
-                outEl.textContent = text;
-                outEl.scrollTop = outEl.scrollHeight;
-              } else if (!text && outEl.textContent === 'Đang tải output...' && data.found) {
-                outEl.textContent = '';
-              }
-            }
+            const dot = el.querySelector('.dsh-live-terminal-dot');
+            const badge = el.querySelector('.dsh-live-terminal-badge');
 
-            // Update header info if server returned more specific command or cwd
-            if (data.command && (!el.dataset.command || el.dataset.command.length < 5)) {
-              el.dataset.command = data.command;
-              const cmdEl = el.querySelector('.dsh-live-terminal-command');
-              if (cmdEl && (!cmdEl.textContent || cmdEl.textContent.trim() === '')) {
-                cmdEl.textContent = data.command;
+            if (data.found) {
+              const text = data.output || '';
+              if (outEl) {
+                if (text && outEl.textContent !== text) {
+                  outEl.textContent = text;
+                  outEl.scrollTop = outEl.scrollHeight;
+                } else if (!text && outEl.textContent.startsWith('Đang')) {
+                  outEl.textContent = data.active ? '(Tiến trình đang chạy, chưa có output...)' : '(Tiến trình đã kết thúc, không có output)';
+                }
               }
-            }
-            if (data.cwd) {
-              const cwdSpan = el.querySelector('.dsh-live-terminal-cwd');
-              if (cwdSpan && (!cwdSpan.textContent || cwdSpan.textContent.trim() === '')) {
-                cwdSpan.textContent = data.cwd;
+
+              if (data.command && (!el.dataset.command || el.dataset.command.length < 5)) {
+                el.dataset.command = data.command;
+                const cmdEl = el.querySelector('.dsh-live-terminal-command');
+                if (cmdEl) cmdEl.textContent = data.command;
+              }
+              if (data.cwd) {
+                const cwdSpan = el.querySelector('.dsh-live-terminal-cwd');
+                if (cwdSpan && !cwdSpan.textContent) cwdSpan.textContent = data.cwd;
+              }
+
+              const statusKey = jobId || callId;
+              if (statusKey) knownJobStatuses.set(statusKey, data.active);
+
+              if (data.active === false) {
+                if (card) {
+                  updateHeaderDot(card, false);
+                  const bodyWrap = card.querySelector('[class*="bodyWrap"]');
+                  if (bodyWrap) updateStopButtonInBody(bodyWrap, card, { jobId, callId }, false);
+                }
+
+                if (dot) dot.classList.add('settled');
+                if (badge) {
+                  badge.textContent = 'HOÀN TẤT';
+                  badge.className = 'dsh-live-terminal-badge settled';
+                }
+
+                if (el.dataset.isBackground === 'true') {
+                  el.dataset.settled = 'true';
+                  activeContainers.delete(el);
+                }
+              } else {
+                if (card) {
+                  updateHeaderDot(card, true);
+                  const bodyWrap = card.querySelector('[class*="bodyWrap"]');
+                  if (bodyWrap) updateStopButtonInBody(bodyWrap, card, { jobId, callId }, true);
+                }
+              }
+            } else {
+              if (el.dataset.isBackground === 'true' && outEl && outEl.textContent === 'Đang tải output...') {
+                outEl.textContent = 'Đang chờ output từ background job (' + (jobId || 'đang chạy') + ')...';
               }
             }
           } catch (e) {}
         });
+        stopPollingIfEmpty();
       }, 200);
     }
 
@@ -234,93 +584,150 @@ window.__ModuleLoader__.load({
       }
     }
 
+    let isUpdating = false;
+    let updateScheduled = false;
+
+    function scheduleUpdate() {
+      if (updateScheduled) return;
+      updateScheduled = true;
+      requestAnimationFrame(() => {
+        updateScheduled = false;
+        updateLiveBlocks();
+      });
+    }
+
     function updateLiveBlocks() {
-      ensureStyles();
+      if (isUpdating) return;
+      isUpdating = true;
 
-      // Find all running tool call rows
-      const runningNodes = document.querySelectorAll('[data-state="running"]');
+      try {
+        ensureStyles();
 
-      runningNodes.forEach((node) => {
-        // Find card container (either node itself or parent card)
-        const card = node.closest('[class*="card"]') || node.closest('[class*="root"]') || node;
+        // Dọn dẹp chấm xanh/button sót lại trên các block không phải shell
+        const strayDots = document.querySelectorAll('.dsh-live-header-dot, .dsh-live-header-actions');
+        strayDots.forEach((el) => {
+          const card = el.closest('[data-tool], [data-variant], [class*="root"]');
+          if (card && !isAllowedShellCard(card)) {
+            el.remove();
+          }
+        });
 
-        // Hide default static terminal card when running
-        const defaultCard = card.querySelector('[data-terminal]');
-        if (defaultCard) {
-          defaultCard.style.display = 'none';
-        }
+        // CHỈ quét các block pwsh hoặc bash
+        const candidates = document.querySelectorAll(
+          '[data-tool="pwsh"], [data-tool="bash"], [data-variant="bash"]'
+        );
 
-        // Check if expanded: aria-expanded="true" on node, card, or any child/parent
-        const isExpanded = node.getAttribute('aria-expanded') === 'true' ||
-                           card.getAttribute('aria-expanded') === 'true' ||
-                           card.querySelector('[aria-expanded="true"]') !== null ||
-                           card.querySelector('[class*="bodyWrap"]') !== null;
+        const seenCards = new Set();
 
-        let liveBox = card.querySelector('.dsh-live-terminal-block');
+        candidates.forEach((node) => {
+          const card = node.closest('[data-chat-call-id]') ||
+                       node.closest('[class*="callRow"]') ||
+                       node.closest('[class*="card"]') ||
+                       node;
 
-        if (isExpanded) {
-          if (!liveBox) {
-            const info = extractCommandInfo(card);
-            liveBox = document.createElement('div');
-            liveBox.className = 'dsh-live-terminal-block';
-            if (info.callId) liveBox.dataset.callId = info.callId;
-            if (info.command) liveBox.dataset.command = info.command;
-            if (info.sessionId) liveBox.dataset.sessionId = info.sessionId;
+          if (seenCards.has(card)) return;
+          seenCards.add(card);
 
-            liveBox.innerHTML = `
-              <div class="dsh-live-terminal-header">
-                <div class="dsh-live-terminal-prompt-line">
-                  <span class="dsh-live-terminal-dot"></span>
-                  <span class="dsh-live-terminal-cwd">${info.cwd}</span>
-                  <span class="dsh-live-terminal-command">${info.command}</span>
+          if (!isAllowedShellCard(card)) return;
+
+          const info = extractCommandInfo(card);
+          const isBackground = !!info.jobId || (info.command && /"run_in_background"\s*:\s*true/.test(card.innerHTML));
+
+          const stateAttr = card.getAttribute('data-state') || card.querySelector('[data-state]')?.getAttribute('data-state');
+          const isStateRunning = stateAttr === 'running';
+
+          const statusKey = info.jobId || info.callId;
+          const cachedActive = statusKey ? knownJobStatuses.get(statusKey) : undefined;
+          const isRunning = cachedActive !== undefined ? cachedActive : (isStateRunning || isBackground);
+
+          // 1. Cập nhật CHẤM XANH trên header
+          updateHeaderDot(card, isRunning);
+
+          // 2. Kiểm tra mở rộng (expanded)
+          const bodyWrap = card.querySelector('[class*="bodyWrap"]');
+          const isExpanded = !!bodyWrap ||
+                             card.getAttribute('aria-expanded') === 'true' ||
+                             card.querySelector('[aria-expanded="true"]') !== null;
+
+          let liveBox = card.querySelector('.dsh-live-terminal-block');
+
+          if (isExpanded && bodyWrap) {
+            // Nút Stop cạnh Inspect ở chân bodyWrap
+            updateStopButtonInBody(bodyWrap, card, info, isRunning);
+
+            if (!liveBox) {
+              liveBox = document.createElement('div');
+              liveBox.className = 'dsh-live-terminal-block';
+              if (info.callId) liveBox.dataset.callId = info.callId;
+              if (info.jobId) liveBox.dataset.jobId = info.jobId;
+              if (info.command) liveBox.dataset.command = info.command;
+              if (info.sessionId) liveBox.dataset.sessionId = info.sessionId;
+              liveBox.dataset.isBackground = isBackground ? 'true' : 'false';
+
+              const dotClass = isRunning ? 'dsh-live-terminal-dot' : 'dsh-live-terminal-dot settled';
+
+              liveBox.innerHTML = `
+                <div class="dsh-live-terminal-header">
+                  <div class="dsh-live-terminal-prompt-line">
+                    <span class="${dotClass}"></span>
+                    <span class="dsh-live-terminal-cwd">${escapeHtml(info.cwd)}</span>
+                    <span class="dsh-live-terminal-command" title="${escapeHtml(info.command)}">${escapeHtml(info.command)}</span>
+                  </div>
                 </div>
-              </div>
-              <div class="dsh-live-terminal-output">Đang tải output...</div>
-            `;
+                <div class="dsh-live-terminal-output">Đang tải output...</div>
+              `;
 
-            // Insert into row body
-            const bodyWrap = card.querySelector('[class*="bodyWrap"]');
-            if (bodyWrap) {
-              bodyWrap.insertBefore(liveBox, bodyWrap.firstChild);
-            } else {
-              // Try inserting before inspect button or at end of card
-              const inspectBtn = card.querySelector('[class*="inspectButton"]') || card.querySelector('button');
-              if (inspectBtn && inspectBtn.parentNode === card) {
-                card.insertBefore(liveBox, inspectBtn);
+              const footerRow = bodyWrap.querySelector('.dsh-live-footer-row');
+              const inspectBtn = bodyWrap.querySelector('[class*="inspectButton"]') || bodyWrap.querySelector('button');
+              const targetBefore = footerRow || inspectBtn;
+
+              if (targetBefore && targetBefore.parentNode === bodyWrap) {
+                bodyWrap.insertBefore(liveBox, targetBefore);
               } else {
-                card.appendChild(liveBox);
+                bodyWrap.appendChild(liveBox);
+              }
+
+              if (!isBackground && isStateRunning) {
+                const defaultCard = card.querySelector('[data-terminal]');
+                if (defaultCard) defaultCard.style.display = 'none';
+              }
+            }
+
+            if (liveBox.dataset.settled !== 'true') {
+              activeContainers.add(liveBox);
+              startPolling();
+            }
+          } else {
+            if (liveBox) {
+              activeContainers.delete(liveBox);
+              liveBox.remove();
+              stopPollingIfEmpty();
+            }
+          }
+        });
+
+        // Dọn dẹp container không còn trong DOM
+        activeContainers.forEach((box) => {
+          if (!document.body.contains(box)) {
+            activeContainers.delete(box);
+          } else {
+            const isBackground = box.dataset.isBackground === 'true';
+            if (!isBackground) {
+              const parentRow = box.closest('[data-state]');
+              if (parentRow && parentRow.getAttribute('data-state') !== 'running') {
+                activeContainers.delete(box);
+                box.remove();
+                const defaultCard = parentRow.querySelector('[data-terminal]');
+                if (defaultCard) defaultCard.style.display = '';
               }
             }
           }
-          activeContainers.add(liveBox);
-          startPolling();
-        } else {
-          if (liveBox) {
-            activeContainers.delete(liveBox);
-            liveBox.remove();
-            stopPollingIfEmpty();
-          }
-        }
-      });
+        });
 
-      // Cleanup finished rows
-      activeContainers.forEach((box) => {
-        if (!document.body.contains(box)) {
-          activeContainers.delete(box);
-        } else {
-          const parentRow = box.closest('[data-state]');
-          if (parentRow && parentRow.getAttribute('data-state') !== 'running') {
-            activeContainers.delete(box);
-            box.remove();
-            // Restore default card
-            const defaultCard = parentRow.querySelector('[data-terminal]');
-            if (defaultCard) {
-              defaultCard.style.display = '';
-            }
-          }
-        }
-      });
-      stopPollingIfEmpty();
+        stopPollingIfEmpty();
+      } finally {
+        isUpdating = false;
+      }
     }
 
     exports.inject = ['slots'];
@@ -328,18 +735,38 @@ window.__ModuleLoader__.load({
       console.log('[dsh-plugin-live-terminal] client plugin initialized live monitor');
       ensureStyles();
 
-      const observer = new MutationObserver(() => {
-        updateLiveBlocks();
+      const observer = new MutationObserver((mutations) => {
+        let relevant = false;
+        for (const m of mutations) {
+          const target = m.target;
+          if (target && target.nodeType === 1) {
+            if (
+              target.classList?.contains('dsh-live-terminal-block') ||
+              target.classList?.contains('dsh-live-header-dot') ||
+              target.classList?.contains('dsh-live-stop-btn') ||
+              target.classList?.contains('dsh-live-footer-row') ||
+              target.closest?.('.dsh-live-terminal-block') ||
+              target.closest?.('.dsh-live-footer-row')
+            ) {
+              continue;
+            }
+          }
+          relevant = true;
+          break;
+        }
+        if (relevant) {
+          scheduleUpdate();
+        }
       });
 
       observer.observe(document.body, {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['data-state', 'aria-expanded']
+        attributeFilter: ['data-state', 'aria-expanded', 'data-open']
       });
 
-      updateLiveBlocks();
+      scheduleUpdate();
     };
 
     return module.exports;
