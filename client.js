@@ -215,14 +215,6 @@ window.__ModuleLoader__.load({
           fill: currentColor;
           flex: none;
         }
-
-        /* Stop button positioned on disclosure header row (for wait blocks) */
-        .dsh-live-header-stop-btn {
-          flex: none;
-          margin-left: auto;
-          margin-right: 8px;
-          z-index: 2;
-        }
       `;
       document.head.appendChild(style);
     }
@@ -529,7 +521,6 @@ window.__ModuleLoader__.load({
           if (key) knownJobStatuses.set(key, false);
 
           updateHeaderDot(card, false);
-          updateHeaderStopButton(card, { jobId, callId }, false);
 
           if (btn) btn.remove();
 
@@ -597,44 +588,6 @@ window.__ModuleLoader__.load({
         if (dotEl) {
           dotEl.remove();
         }
-      }
-    }
-
-    // Stop button positioned on disclosure header row (specifically for wait tool cards to allow early stop without expanding!)
-    function updateHeaderStopButton(card, info, isRunning) {
-      const headerRow = card.querySelector('[data-disclosure-row="true"]') ||
-                        card.querySelector('[class*="row"]');
-      if (!headerRow) return;
-
-      let stopBtn = headerRow.querySelector('.dsh-live-header-stop-btn');
-      if (isRunning) {
-        if (!stopBtn) {
-          stopBtn = document.createElement('button');
-          stopBtn.type = 'button';
-          stopBtn.className = 'dsh-live-stop-btn dsh-live-header-stop-btn';
-          stopBtn.title = 'Stop wait and cancel background job early';
-          stopBtn.innerHTML = `
-            <svg viewBox="0 0 16 16" fill="currentColor">
-              <rect x="3" y="3" width="10" height="10" rx="2"></rect>
-            </svg>
-            <span>Stop</span>
-          `;
-
-          stopBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            stopJob(info.jobId, info.callId, stopBtn, card);
-          });
-
-          const dot = headerRow.querySelector('.dsh-live-header-dot');
-          if (dot) {
-            headerRow.insertBefore(stopBtn, dot);
-          } else {
-            headerRow.appendChild(stopBtn);
-          }
-        }
-      } else {
-        if (stopBtn) stopBtn.remove();
       }
     }
 
@@ -882,11 +835,15 @@ window.__ModuleLoader__.load({
             const isRunning = stateAttr === 'running';
 
             updateHeaderDot(card, isRunning);
-            updateHeaderStopButton(card, waitInfo, isRunning);
 
             const bodyWrap = card.querySelector('[class*="bodyWrap"]');
-            if (bodyWrap) {
+            const isExpanded = !!bodyWrap ||
+                               card.getAttribute('aria-expanded') === 'true' ||
+                               card.querySelector('[aria-expanded="true"]') !== null;
+            if (isExpanded && bodyWrap) {
               updateStopButtonInBody(bodyWrap, card, waitInfo, isRunning);
+            } else if (bodyWrap) {
+              updateStopButtonInBody(bodyWrap, card, waitInfo, false);
             }
           }
         });
@@ -1087,9 +1044,13 @@ window.__ModuleLoader__.load({
       try {
         ensureStyles();
 
-        // Clean up stray indicators on non-target cards
+        // Clean up stray indicators on non-target cards and remove any legacy header stop buttons
         const strayDots = document.querySelectorAll('.dsh-live-header-dot, .dsh-live-header-actions, .dsh-live-header-stop-btn');
         strayDots.forEach((el) => {
+          if (el.classList.contains('dsh-live-header-stop-btn')) {
+            el.remove();
+            return;
+          }
           const card = el.closest('[data-tool], [data-variant], [class*="root"]');
           if (card && !isAllowedShellCard(card) && !isWaitToolCard(card)) {
             el.remove();
@@ -1126,16 +1087,19 @@ window.__ModuleLoader__.load({
 
             const isRunning = stateAttr === 'running';
 
-            // 1. Header pulsing green dot
+            // 1. Header pulsing green dot (always visible even when collapsed if wait is running)
             updateHeaderDot(card, isRunning);
 
-            // 2. Header Stop button (shows on header row for quick early stopping even when collapsed!)
-            updateHeaderStopButton(card, waitInfo, isRunning);
-
-            // 3. Body Stop button next to Inspect (when expanded)
+            // 2. Stop button positioned ONLY next to Inspect button when expanded
             const bodyWrap = card.querySelector('[class*="bodyWrap"]');
-            if (bodyWrap) {
+            const isExpanded = !!bodyWrap ||
+                               card.getAttribute('aria-expanded') === 'true' ||
+                               card.querySelector('[aria-expanded="true"]') !== null;
+
+            if (isExpanded && bodyWrap) {
               updateStopButtonInBody(bodyWrap, card, waitInfo, isRunning);
+            } else if (bodyWrap) {
+              updateStopButtonInBody(bodyWrap, card, waitInfo, false);
             }
             return;
           }
@@ -1280,7 +1244,6 @@ window.__ModuleLoader__.load({
               target.classList?.contains('dsh-live-terminal-block') ||
               target.classList?.contains('dsh-live-header-dot') ||
               target.classList?.contains('dsh-live-stop-btn') ||
-              target.classList?.contains('dsh-live-header-stop-btn') ||
               target.classList?.contains('dsh-live-copy-btn') ||
               target.classList?.contains('dsh-live-footer-row') ||
               target.closest?.('.dsh-live-terminal-block') ||
