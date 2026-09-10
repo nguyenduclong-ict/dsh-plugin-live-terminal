@@ -219,10 +219,12 @@ window.__ModuleLoader__.load({
       document.head.appendChild(style);
     }
 
-    // Polling tracker
+    // Polling & Cache tracker
     let pollingTimer = null;
+    let syncJobsTimer = null;
     const activeContainers = new Set();
-    const knownJobStatuses = new Map(); // key (jobId or callId) -> boolean (active)
+    const knownJobStatuses = new Map(); // jobId or callId -> boolean (active)
+    const jobOutputCache = new Map();   // jobId -> full output text
 
     function escapeHtml(str) {
       if (!str) return '';
@@ -232,6 +234,19 @@ window.__ModuleLoader__.load({
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+    }
+
+    function normalizeCmd(str) {
+      if (!str) return '';
+      return str.toLowerCase().replace(/\s+/g, ' ').trim();
+    }
+
+    function matchesCommand(textA, textB) {
+      if (!textA || !textB) return false;
+      const a = normalizeCmd(textA);
+      const b = normalizeCmd(textB);
+      if (!a || !b) return false;
+      return a === b || a.includes(b) || b.includes(a);
     }
 
     async function copyToClipboard(text) {
@@ -346,7 +361,7 @@ window.__ModuleLoader__.load({
         }
       }
 
-      // Check raw text fallback for background job markers
+      // Check raw text fallback for background job markers (even when collapsed)
       if (!jobId || !isBackground) {
         const cardText = card.textContent || '';
         const match = cardText.match(/started background job\s+([a-zA-Z0-9_-]+)/i);
@@ -425,6 +440,7 @@ window.__ModuleLoader__.load({
             if (outEl && !outEl.textContent.includes('[Process stopped by user]')) {
               outEl.textContent += (outEl.textContent ? '\n' : '') + '[Process stopped by user]\n';
               outEl.scrollTop = outEl.scrollHeight;
+              if (jobId) jobOutputCache.set(jobId, outEl.textContent);
             }
 
             liveBox.dataset.settled = 'true';
@@ -441,7 +457,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // Header dot indicator on data-disclosure-row
+    // Header dot indicator on data-disclosure-row (shows green dot even when collapsed!)
     function updateHeaderDot(card, isRunning) {
       const headerRow = card.querySelector('[data-disclosure-row="true"]') ||
                         card.querySelector('[class*="row"]');
@@ -456,7 +472,7 @@ window.__ModuleLoader__.load({
         if (!dotEl) {
           dotEl = document.createElement('span');
           dotEl.className = 'dsh-live-header-dot';
-          dotEl.title = 'Command is running...';
+          dotEl.title = 'Background job is running...';
           headerRow.appendChild(dotEl);
         }
       } else {
@@ -515,7 +531,50 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // Create or retrieve Live Terminal Block
+    // Fetch output once for a settled job and cache it
+    async function fetchSettledOutput(liveBox, info) {
+      if (!liveBox) return;
+      const outEl = liveBox.querySelector('.dsh-live-terminal-output');
+      const jobId = info.jobId || liveBox.dataset.jobId;
+
+      if (jobId && jobOutputCache.has(jobId)) {
+        const cached = jobOutputCache.get(jobId);
+        if (cached && outEl && outEl.textContent !== cached) {
+          outEl.textContent = cached;
+          outEl.scrollTop = outEl.scrollHeight;
+        }
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams();
+        if (jobId) params.append('jobId', jobId);
+        if (info.command) params.append('command', info.command);
+        if (info.sessionId) params.append('sessionId', info.sessionId);
+
+        const res = await fetch('/api/live-terminal/output?' + params.toString());
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (outEl) {
+          if (data.output) {
+            outEl.textContent = data.output;
+            outEl.scrollTop = outEl.scrollHeight;
+            if (jobId) jobOutputCache.set(jobId, data.output);
+          } else {
+            if (outEl.textContent === 'Loading output...') {
+              outEl.textContent = '(Process has completed, no output)';
+            }
+          }
+        }
+      } catch (e) {
+        if (outEl && outEl.textContent === 'Loading output...') {
+          outEl.textContent = '(Failed to load output)';
+        }
+      }
+    }
+
+    // Create or retrieve Live Terminal Block with immediate cached output if available
     function getOrCreateLiveBox(card, bodyWrap, info, isBackground) {
       let liveBox = bodyWrap.querySelector('.dsh-live-terminal-block');
       if (liveBox) return liveBox;
@@ -528,6 +587,10 @@ window.__ModuleLoader__.load({
       if (info.sessionId) liveBox.dataset.sessionId = info.sessionId;
       liveBox.dataset.isBackground = isBackground ? 'true' : 'false';
 
+      // Use cached output immediately if already available to avoid flashing "Loading output..."
+      const cached = (info.jobId && jobOutputCache.get(info.jobId)) || '';
+      const initialOutputText = cached || 'Loading output...';
+
       liveBox.innerHTML = `
         <div class="dsh-live-terminal-header">
           <div class="dsh-live-terminal-prompt-line">
@@ -537,7 +600,7 @@ window.__ModuleLoader__.load({
           </div>
           <button class="dsh-live-copy-btn" type="button" title="Copy command">Copy</button>
         </div>
-        <div class="dsh-live-terminal-output">Loading output...</div>
+        <div class="dsh-live-terminal-output">${escapeHtml(initialOutputText)}</div>
       `;
 
       const copyBtn = liveBox.querySelector('.dsh-live-copy-btn');
@@ -572,6 +635,87 @@ window.__ModuleLoader__.load({
       }
 
       return liveBox;
+    }
+
+    // Periodic synchronization of all background jobs (runs globally even when blocks are collapsed)
+    async function syncJobsStatus() {
+      try {
+        const res = await fetch('/api/live-terminal/jobs');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data.jobs)) return;
+
+        for (const j of data.jobs) {
+          knownJobStatuses.set(j.id, j.active);
+        }
+
+        const candidates = document.querySelectorAll(
+          '[data-tool="pwsh"], [data-tool="bash"], [data-variant="bash"]'
+        );
+        const seenCards = new Set();
+
+        candidates.forEach((node) => {
+          const card = node.closest('[data-chat-call-id]') ||
+                       node.closest('[class*="callRow"]') ||
+                       node.closest('[class*="card"]') ||
+                       node;
+
+          if (seenCards.has(card)) return;
+          seenCards.add(card);
+
+          if (!isAllowedShellCard(card)) return;
+
+          const info = extractCommandInfo(card);
+          let matchedJob = null;
+
+          if (info.jobId) {
+            matchedJob = data.jobs.find(j => j.id === info.jobId);
+          } else {
+            const cardText = card.textContent || '';
+            matchedJob = data.jobs.find(j => {
+              if (!j.command) return false;
+              return matchesCommand(cardText, j.command) || matchesCommand(info.command, j.command);
+            });
+            if (matchedJob) {
+              card.dataset.jobId = matchedJob.id;
+              card.dataset.isBackground = 'true';
+              info.jobId = matchedJob.id;
+              info.isBackground = true;
+            }
+          }
+
+          if (matchedJob) {
+            // SHOW / HIDE GREEN DOT ON HEADER ROW EVEN WHEN CARD IS COLLAPSED!
+            updateHeaderDot(card, matchedJob.active);
+
+            const bodyWrap = card.querySelector('[class*="bodyWrap"]');
+            if (bodyWrap) {
+              updateStopButtonInBody(bodyWrap, card, info, matchedJob.active);
+              const liveBox = bodyWrap.querySelector('.dsh-live-terminal-block');
+              if (liveBox) {
+                const dot = liveBox.querySelector('.dsh-live-terminal-dot');
+                if (matchedJob.active) {
+                  if (dot) dot.classList.remove('settled');
+                  delete liveBox.dataset.settled;
+                  activeContainers.add(liveBox);
+                  startPolling();
+                } else {
+                  if (dot) dot.classList.add('settled');
+                  liveBox.dataset.settled = 'true';
+                  activeContainers.delete(liveBox);
+                  const outEl = liveBox.querySelector('.dsh-live-terminal-output');
+                  if (outEl && (!jobOutputCache.has(matchedJob.id) || outEl.textContent === 'Loading output...')) {
+                    fetchSettledOutput(liveBox, info);
+                  }
+                }
+              }
+            }
+          } else if (info.isBackground && info.jobId) {
+            const isActive = knownJobStatuses.get(info.jobId) ?? false;
+            updateHeaderDot(card, isActive);
+          }
+        });
+      } catch (e) {}
     }
 
     function startPolling() {
@@ -665,6 +809,10 @@ window.__ModuleLoader__.load({
 
             if (data.found) {
               const text = data.output || '';
+              if (text && jobId) {
+                jobOutputCache.set(jobId, text);
+              }
+
               if (outEl) {
                 if (text && outEl.textContent !== text) {
                   outEl.textContent = text;
@@ -720,7 +868,11 @@ window.__ModuleLoader__.load({
               // Not found on server
               if (isBackground) {
                 if (outEl && outEl.textContent === 'Loading output...') {
-                  outEl.textContent = '(Background job completed or no output recorded)';
+                  if (jobId && jobOutputCache.has(jobId)) {
+                    outEl.textContent = jobOutputCache.get(jobId);
+                  } else {
+                    outEl.textContent = '(Background job completed or no output recorded)';
+                  }
                 }
                 if (dot) dot.classList.add('settled');
                 el.dataset.settled = 'true';
@@ -808,8 +960,12 @@ window.__ModuleLoader__.load({
             if (cachedActive !== undefined) {
               isRunning = cachedActive;
             } else {
-              // Assume running initially for background job until polling retrieves exact status
-              isRunning = true;
+              // If unknown, check if we have finished output cached
+              if (info.jobId && jobOutputCache.has(info.jobId)) {
+                isRunning = false;
+              } else {
+                isRunning = true;
+              }
             }
           } else {
             // Foreground command: strictly governed by data-state
@@ -821,7 +977,7 @@ window.__ModuleLoader__.load({
             }
           }
 
-          // 1. Header pulsing green dot
+          // 1. Header pulsing green dot (always visible even when collapsed if job is running!)
           updateHeaderDot(card, isRunning);
 
           // 2. Check if card is expanded
@@ -841,6 +997,8 @@ window.__ModuleLoader__.load({
               liveBox = getOrCreateLiveBox(card, bodyWrap, info, true);
 
               const dot = liveBox.querySelector('.dsh-live-terminal-dot');
+              const outEl = liveBox.querySelector('.dsh-live-terminal-output');
+
               if (isRunning) {
                 if (dot) dot.classList.remove('settled');
                 delete liveBox.dataset.settled;
@@ -850,7 +1008,12 @@ window.__ModuleLoader__.load({
                 if (dot) dot.classList.add('settled');
                 liveBox.dataset.settled = 'true';
                 activeContainers.delete(liveBox);
-                // Keep liveBox in DOM so user can view settled final output!
+
+                // Fetch settled final output if not yet in cache or currently displaying "Loading output..."
+                const curText = outEl ? outEl.textContent : '';
+                if (!info.jobId || !jobOutputCache.has(info.jobId) || curText === 'Loading output...') {
+                  fetchSettledOutput(liveBox, info);
+                }
               }
             } else {
               // --- FOREGROUND COMMAND ---
@@ -874,7 +1037,8 @@ window.__ModuleLoader__.load({
               }
             }
           } else {
-            // Collapsed: remove liveBox to save memory, will re-inject when expanded
+            // Collapsed: remove liveBox to save memory for foreground commands,
+            // will re-inject and read from cache when re-expanded!
             if (liveBox && !isBackground) {
               activeContainers.delete(liveBox);
               liveBox.remove();
@@ -932,6 +1096,12 @@ window.__ModuleLoader__.load({
         attributes: true,
         attributeFilter: ['data-state', 'aria-expanded', 'data-open']
       });
+
+      // Start global jobs status synchronization every 1 second
+      syncJobsStatus();
+      if (!syncJobsTimer) {
+        syncJobsTimer = setInterval(syncJobsStatus, 1000);
+      }
 
       scheduleUpdate();
     };

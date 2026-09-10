@@ -56,9 +56,10 @@ function pruneCompletedProcesses() {
     }
   }
 
-  if (backgroundJobBuffers.size > 50) {
+  // Keep up to 100 finished background job buffers
+  if (backgroundJobBuffers.size > 100) {
     const keys = [...backgroundJobBuffers.keys()];
-    for (let i = 0; i < keys.length - 50; i++) {
+    for (let i = 0; i < keys.length - 100; i++) {
       backgroundJobBuffers.delete(keys[i]);
     }
   }
@@ -102,6 +103,16 @@ function setupJobOutputInterception(jobId, job) {
     return fullAccumulated;
   };
 
+  if (job.settled && typeof job.settled.then === 'function') {
+    job.settled.then(() => {
+      pump();
+      if (job.output && job.output.length > fullAccumulated.length) {
+        fullAccumulated = job.output;
+      }
+      backgroundJobBuffers.set(jobId, fullAccumulated);
+    }).catch(() => {});
+  }
+
   if (!backgroundJobBuffers.has(jobId)) {
     backgroundJobBuffers.set(jobId, '');
   }
@@ -137,8 +148,15 @@ export function apply(ctx) {
   ctx.inject(['jobs'], (jobsCtx) => {
     try {
       jobsRegistry = jobsCtx.jobs;
-      const origJobsStart = jobsCtx.jobs.start.bind(jobsCtx.jobs);
 
+      // Intercept any pre-existing jobs
+      if (jobsRegistry?.store) {
+        for (const [id, job] of jobsRegistry.store.entries()) {
+          setupJobOutputInterception(String(id), job);
+        }
+      }
+
+      const origJobsStart = jobsCtx.jobs.start.bind(jobsCtx.jobs);
       jobsCtx.jobs.start = function(spec) {
         const jobId = origJobsStart(spec);
         if (jobId) {
@@ -231,7 +249,57 @@ export function apply(ctx) {
     return handle;
   };
 
-  // 4. HTTP route for output retrieval (both background jobs and foreground processes)
+  // 4. HTTP route to list all background jobs with their live status
+  ctx.webServer.register({
+    kind: 'exact',
+    path: '/api/live-terminal/jobs',
+    handler: async (req, res) => {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+
+      const jobs = jobsRegistry || ctx.jobs || ctx.get?.('jobs');
+      const jobList = [];
+
+      if (jobs?.store) {
+        for (const [id, job] of jobs.store.entries()) {
+          const jid = String(id);
+          if (!job.__liveTerminalIntercepted) {
+            setupJobOutputInterception(jid, job);
+          }
+          const isTerminal = job.status === 'completed' || job.status === 'killed' || job.status === 'failed';
+          jobList.push({
+            id: jid,
+            kind: job.kind || 'pwsh',
+            command: job.label || '',
+            status: job.status || (isTerminal ? 'completed' : 'running'),
+            active: !isTerminal,
+            startedAt: job.startedAt || 0,
+            finishedAt: job.finishedAt || null
+          });
+        }
+      }
+
+      for (const [jid, output] of backgroundJobBuffers.entries()) {
+        if (!jobList.some(j => j.id === jid)) {
+          jobList.push({
+            id: jid,
+            kind: 'pwsh',
+            command: '',
+            status: 'completed',
+            active: false,
+            hasOutput: !!output
+          });
+        }
+      }
+
+      res.end(JSON.stringify({
+        success: true,
+        jobs: jobList
+      }));
+    }
+  });
+
+  // 5. HTTP route for output retrieval (both background jobs and foreground processes)
   ctx.webServer.register({
     kind: 'exact',
     path: '/api/live-terminal/output',
@@ -440,7 +508,7 @@ export function apply(ctx) {
     }
   });
 
-  // 5. HTTP route to stop a running background job or foreground process
+  // 6. HTTP route to stop a running background job or foreground process
   ctx.webServer.register({
     kind: 'exact',
     path: '/api/live-terminal/stop',
@@ -553,5 +621,5 @@ export function apply(ctx) {
     }
   });
 
-  ctx.logger?.info?.('dsh-plugin-live-terminal endpoints /api/live-terminal/output and /api/live-terminal/stop ready');
+  ctx.logger?.info?.('dsh-plugin-live-terminal endpoints /api/live-terminal/jobs, /api/live-terminal/output, and /api/live-terminal/stop ready');
 }
