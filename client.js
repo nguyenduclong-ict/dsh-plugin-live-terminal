@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
           font: var(--dsw-font-markdown-code-block-small, var(--dsl-terminal-font));
         }
 
-        /* Header cố định chứa prompt: cwd, command và badge trạng thái */
+        /* Header cố định chứa prompt: cwd, command và nút Copy */
         .dsh-live-terminal-header {
           display: flex;
           align-items: center;
@@ -38,7 +38,7 @@ window.__ModuleLoader__.load({
           padding: 8px 14px 8px var(--dsl-terminal-gutter);
           border-bottom: 1px solid var(--dsw-alias-border-l2);
           background-color: var(--dsw-alias-markdown-code-block);
-          user-select: none;
+          user-select: text;
         }
 
         .dsh-live-terminal-prompt-line {
@@ -49,6 +49,7 @@ window.__ModuleLoader__.load({
           min-width: 0;
           line-height: var(--dsl-terminal-line-height);
           flex: 1;
+          user-select: text;
         }
 
         /* Chấm xanh nhấp nháy trong Live Terminal Box */
@@ -62,6 +63,8 @@ window.__ModuleLoader__.load({
           background: #22c55e;
           box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
           animation: dsh-live-pulse 1.2s infinite ease-in-out;
+          user-select: none;
+          pointer-events: none;
         }
 
         .dsh-live-terminal-dot.settled {
@@ -80,6 +83,8 @@ window.__ModuleLoader__.load({
           color: var(--dsw-alias-label-tertiary);
           line-height: var(--dsl-terminal-line-height);
           font-size: 12px;
+          user-select: text;
+          cursor: text;
         }
 
         .dsh-live-terminal-command {
@@ -90,29 +95,33 @@ window.__ModuleLoader__.load({
           white-space: pre;
           font-family: inherit;
           line-height: var(--dsl-terminal-line-height);
+          user-select: text;
+          cursor: text;
         }
 
-        .dsh-live-terminal-badge {
-          margin-left: auto;
-          font-size: 11px;
-          line-height: 16px;
-          padding: 1px 7px;
-          border-radius: 4px;
-          font-weight: 500;
+        /* Nút Copy lệnh */
+        .dsh-live-copy-btn {
           flex: none;
-          letter-spacing: 0.02em;
+          margin-left: auto;
+          background: transparent;
+          border: none;
+          color: var(--dsw-alias-label-tertiary, #8b949e);
+          font-family: inherit;
+          font-size: 12px;
+          line-height: var(--dsl-terminal-line-height, 22px);
+          padding: 0 4px;
+          cursor: pointer;
+          user-select: none;
+          border-radius: 4px;
+          transition: color 0.15s ease;
         }
 
-        .dsh-live-terminal-badge.live {
-          color: #22c55e;
-          background: rgba(34, 197, 94, 0.12);
-          border: 1px solid rgba(34, 197, 94, 0.25);
+        .dsh-live-copy-btn:hover {
+          color: var(--dsw-alias-label-primary, #ffffff);
         }
 
-        .dsh-live-terminal-badge.settled {
-          color: var(--dsw-alias-label-tertiary);
-          background: var(--dsw-alias-fill-l2, rgba(255, 255, 255, 0.06));
-          border: 1px solid var(--dsw-alias-border-l2, rgba(255, 255, 255, 0.1));
+        .dsh-live-copy-btn:active {
+          opacity: 0.7;
         }
 
         /* Vùng log output */
@@ -223,6 +232,30 @@ window.__ModuleLoader__.load({
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+    }
+
+    async function copyToClipboard(text) {
+      if (!text) return false;
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (e) {}
+      }
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        return success;
+      } catch (e) {
+        return false;
+      }
     }
 
     function getActiveSessionId() {
@@ -673,9 +706,31 @@ window.__ModuleLoader__.load({
                     <span class="dsh-live-terminal-cwd">${escapeHtml(info.cwd)}</span>
                     <span class="dsh-live-terminal-command" title="${escapeHtml(info.command)}">${escapeHtml(info.command)}</span>
                   </div>
+                  <button class="dsh-live-copy-btn" type="button" title="Copy command">Copy</button>
                 </div>
                 <div class="dsh-live-terminal-output">Đang tải output...</div>
               `;
+
+              const copyBtn = liveBox.querySelector('.dsh-live-copy-btn');
+              if (copyBtn) {
+                copyBtn.addEventListener('click', async (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const cmd = liveBox.dataset.command ||
+                              liveBox.querySelector('.dsh-live-terminal-command')?.textContent ||
+                              info.command || '';
+                  if (!cmd) return;
+                  const ok = await copyToClipboard(cmd);
+                  if (ok) {
+                    copyBtn.textContent = 'Copied!';
+                    setTimeout(() => {
+                      if (document.body.contains(copyBtn)) {
+                        copyBtn.textContent = 'Copy';
+                      }
+                    }, 1800);
+                  }
+                });
+              }
 
               const footerRow = bodyWrap.querySelector('.dsh-live-footer-row');
               const inspectBtn = bodyWrap.querySelector('[class*="inspectButton"]') || bodyWrap.querySelector('button');
@@ -744,6 +799,7 @@ window.__ModuleLoader__.load({
               target.classList?.contains('dsh-live-terminal-block') ||
               target.classList?.contains('dsh-live-header-dot') ||
               target.classList?.contains('dsh-live-stop-btn') ||
+              target.classList?.contains('dsh-live-copy-btn') ||
               target.classList?.contains('dsh-live-footer-row') ||
               target.closest?.('.dsh-live-terminal-block') ||
               target.closest?.('.dsh-live-footer-row')
