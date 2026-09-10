@@ -561,16 +561,18 @@ window.__ModuleLoader__.load({
             ).toLowerCase().trim();
             const isStateFinished = stateAttr === 'ok' || stateAttr === 'error' || (stateAttr && stateAttr !== 'running');
 
-            // If foreground command has finished in DOM, settle immediately
+            // If foreground command has finished in DOM, remove liveBox immediately
             if (!isBackground && isStateFinished) {
               if (card) {
                 updateHeaderDot(card, false);
                 const bodyWrap = card.querySelector('[class*="bodyWrap"]');
                 if (bodyWrap) updateStopButtonInBody(bodyWrap, card, { jobId, callId }, false);
+                const defaultCard = card.querySelector('[data-terminal]');
+                if (defaultCard) defaultCard.style.display = '';
               }
-              if (dot) dot.classList.add('settled');
-              el.dataset.settled = 'true';
               activeContainers.delete(el);
+              el.remove();
+              stopPollingIfEmpty();
               const statusKey = jobId || callId;
               if (statusKey) knownJobStatuses.set(statusKey, false);
               return;
@@ -605,16 +607,13 @@ window.__ModuleLoader__.load({
                   updateHeaderDot(card, false);
                   const bodyWrap = card.querySelector('[class*="bodyWrap"]');
                   if (bodyWrap) updateStopButtonInBody(bodyWrap, card, { jobId, callId }, false);
+                  const defaultCard = card.querySelector('[data-terminal]');
+                  if (defaultCard) defaultCard.style.display = '';
                 }
 
-                if (dot) dot.classList.add('settled');
-                if (badge) {
-                  badge.textContent = 'COMPLETED';
-                  badge.className = 'dsh-live-terminal-badge settled';
-                }
-
-                el.dataset.settled = 'true';
                 activeContainers.delete(el);
+                el.remove();
+                stopPollingIfEmpty();
               } else {
                 if (card && !isStateFinished) {
                   updateHeaderDot(card, true);
@@ -734,84 +733,75 @@ window.__ModuleLoader__.load({
             // Nút Stop cạnh Inspect ở chân bodyWrap (chỉ hiển thị khi isRunning === true)
             updateStopButtonInBody(bodyWrap, card, info, isRunning);
 
-            if (!liveBox) {
-              liveBox = document.createElement('div');
-              liveBox.className = 'dsh-live-terminal-block';
-              if (info.callId) liveBox.dataset.callId = info.callId;
-              if (info.jobId) liveBox.dataset.jobId = info.jobId;
-              if (info.command) liveBox.dataset.command = info.command;
-              if (info.sessionId) liveBox.dataset.sessionId = info.sessionId;
-              liveBox.dataset.isBackground = isBackground ? 'true' : 'false';
+            if (!isRunning) {
+              // Khi state là OK / Finished: không hiển thị khung live-terminal nữa vì DSH tự hiển thị rồi
+              if (liveBox) {
+                activeContainers.delete(liveBox);
+                liveBox.remove();
+                stopPollingIfEmpty();
+              }
+              const defaultCard = card.querySelector('[data-terminal]');
+              if (defaultCard) defaultCard.style.display = '';
+            } else {
+              // Chỉ hiển thị liveBox khi tiến trình đang chạy (isRunning === true)
+              if (!liveBox) {
+                liveBox = document.createElement('div');
+                liveBox.className = 'dsh-live-terminal-block';
+                if (info.callId) liveBox.dataset.callId = info.callId;
+                if (info.jobId) liveBox.dataset.jobId = info.jobId;
+                if (info.command) liveBox.dataset.command = info.command;
+                if (info.sessionId) liveBox.dataset.sessionId = info.sessionId;
+                liveBox.dataset.isBackground = isBackground ? 'true' : 'false';
 
-              const dotClass = isRunning ? 'dsh-live-terminal-dot' : 'dsh-live-terminal-dot settled';
-
-              liveBox.innerHTML = `
-                <div class="dsh-live-terminal-header">
-                  <div class="dsh-live-terminal-prompt-line">
-                    <span class="${dotClass}"></span>
-                    <span class="dsh-live-terminal-cwd">${escapeHtml(info.cwd)}</span>
-                    <span class="dsh-live-terminal-command" title="${escapeHtml(info.command)}">${escapeHtml(info.command)}</span>
+                liveBox.innerHTML = `
+                  <div class="dsh-live-terminal-header">
+                    <div class="dsh-live-terminal-prompt-line">
+                      <span class="dsh-live-terminal-dot"></span>
+                      <span class="dsh-live-terminal-cwd">${escapeHtml(info.cwd)}</span>
+                      <span class="dsh-live-terminal-command" title="${escapeHtml(info.command)}">${escapeHtml(info.command)}</span>
+                    </div>
+                    <button class="dsh-live-copy-btn" type="button" title="Copy command">Copy</button>
                   </div>
-                  <button class="dsh-live-copy-btn" type="button" title="Copy command">Copy</button>
-                </div>
-                <div class="dsh-live-terminal-output">Loading output...</div>
-              `;
+                  <div class="dsh-live-terminal-output">Loading output...</div>
+                `;
 
-              const copyBtn = liveBox.querySelector('.dsh-live-copy-btn');
-              if (copyBtn) {
-                copyBtn.addEventListener('click', async (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  const cmd = liveBox.dataset.command ||
-                              liveBox.querySelector('.dsh-live-terminal-command')?.textContent ||
-                              info.command || '';
-                  if (!cmd) return;
-                  const ok = await copyToClipboard(cmd);
-                  if (ok) {
-                    copyBtn.textContent = 'Copied!';
-                    setTimeout(() => {
-                      if (document.body.contains(copyBtn)) {
-                        copyBtn.textContent = 'Copy';
-                      }
-                    }, 1800);
-                  }
-                });
-              }
+                const copyBtn = liveBox.querySelector('.dsh-live-copy-btn');
+                if (copyBtn) {
+                  copyBtn.addEventListener('click', async (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const cmd = liveBox.dataset.command ||
+                                liveBox.querySelector('.dsh-live-terminal-command')?.textContent ||
+                                info.command || '';
+                    if (!cmd) return;
+                    const ok = await copyToClipboard(cmd);
+                    if (ok) {
+                      copyBtn.textContent = 'Copied!';
+                      setTimeout(() => {
+                        if (document.body.contains(copyBtn)) {
+                          copyBtn.textContent = 'Copy';
+                        }
+                      }, 1800);
+                    }
+                  });
+                }
 
-              const footerRow = bodyWrap.querySelector('.dsh-live-footer-row');
-              const inspectBtn = bodyWrap.querySelector('[class*="inspectButton"]') || bodyWrap.querySelector('button');
-              const targetBefore = footerRow || inspectBtn;
+                const footerRow = bodyWrap.querySelector('.dsh-live-footer-row');
+                const inspectBtn = bodyWrap.querySelector('[class*="inspectButton"]') || bodyWrap.querySelector('button');
+                const targetBefore = footerRow || inspectBtn;
 
-              if (targetBefore && targetBefore.parentNode === bodyWrap) {
-                bodyWrap.insertBefore(liveBox, targetBefore);
-              } else {
-                bodyWrap.appendChild(liveBox);
-              }
-
-              if (!isBackground && isStateRunning) {
-                const defaultCard = card.querySelector('[data-terminal]');
-                if (defaultCard) defaultCard.style.display = 'none';
-              }
-            }
-
-            // Sync the dot state and settled attribute on existing liveBox
-            if (liveBox) {
-              const dot = liveBox.querySelector('.dsh-live-terminal-dot');
-              if (dot) {
-                if (isRunning) {
-                  dot.classList.remove('settled');
+                if (targetBefore && targetBefore.parentNode === bodyWrap) {
+                  bodyWrap.insertBefore(liveBox, targetBefore);
                 } else {
-                  dot.classList.add('settled');
+                  bodyWrap.appendChild(liveBox);
+                }
+
+                if (!isBackground) {
+                  const defaultCard = card.querySelector('[data-terminal]');
+                  if (defaultCard) defaultCard.style.display = 'none';
                 }
               }
 
-              if (!isRunning) {
-                liveBox.dataset.settled = 'true';
-                activeContainers.delete(liveBox);
-              }
-            }
-
-            if (liveBox.dataset.settled !== 'true' && isRunning) {
               activeContainers.add(liveBox);
               startPolling();
             }
