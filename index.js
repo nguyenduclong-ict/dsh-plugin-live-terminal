@@ -1,9 +1,14 @@
 export const name = 'dsh-plugin-live-terminal';
 export const inject = ['webServer', 'subprocess'];
 
-// Map of active process outputs: id -> { id, callId, jobId, pid, handle, sessionId, cwd, command, output, active, startedAt, lastUpdated, finishedAt }
+// Map of active process outputs for foreground commands:
+// id -> { id, callId, jobId, pid, handle, sessionId, cwd, command, output, active, startedAt, lastUpdated, finishedAt }
 const activeProcesses = new Map();
 let latestSpawnedProc = null;
+
+// Map of background job buffers: jobId -> accumulated output string
+const backgroundJobBuffers = new Map();
+let jobsRegistry = null;
 
 function cleanCommand(argv) {
   if (!Array.isArray(argv) || argv.length === 0) return '';
@@ -11,7 +16,6 @@ function cleanCommand(argv) {
   if (cmdIdx !== -1 && argv[cmdIdx + 1]) {
     let cmd = argv[cmdIdx + 1];
     // Remove PowerShell UTF-8 preamble injected by DSH:
-    // [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [System.Text.UTF8Encoding]::new($false);
     cmd = cmd.replace(/^\s*\[Console\]::OutputEncoding[^;]+;\s*\$OutputEncoding[^;]+;\s*/i, '');
     return cmd.trim();
   }
@@ -27,10 +31,11 @@ function normalizeCmd(str) {
   return str.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-function matchesCommand(proc, cmdText) {
-  if (!proc || !proc.command || !cmdText) return false;
-  const p = normalizeCmd(proc.command);
+function matchesCommand(procOrCmd, cmdText) {
+  if (!procOrCmd || !cmdText) return false;
+  const p = normalizeCmd(typeof procOrCmd === 'string' ? procOrCmd : (procOrCmd.command || procOrCmd.label || ''));
   const c = normalizeCmd(cmdText);
+  if (!p || !c) return false;
   return p === c || p.includes(c) || c.includes(p);
 }
 
@@ -50,12 +55,62 @@ function pruneCompletedProcesses() {
       if (p.jobId) activeProcesses.delete(p.jobId);
     }
   }
+
+  if (backgroundJobBuffers.size > 50) {
+    const keys = [...backgroundJobBuffers.keys()];
+    for (let i = 0; i < keys.length - 50; i++) {
+      backgroundJobBuffers.delete(keys[i]);
+    }
+  }
+}
+
+/**
+ * Wraps job.readOutput to support multi-consumer streaming:
+ * - Plugin gets full accumulated output from process start.
+ * - Agent / tool-jobs (job_output) gets its incremental unread delta without missing anything.
+ */
+function setupJobOutputInterception(jobId, job) {
+  if (!job || job.__liveTerminalIntercepted) return;
+  job.__liveTerminalIntercepted = true;
+
+  const origReadOutput = job.readOutput;
+  let fullAccumulated = backgroundJobBuffers.get(jobId) || '';
+  let modelUnreadBuffer = '';
+
+  function pump() {
+    if (typeof origReadOutput === 'function') {
+      try {
+        const chunk = origReadOutput();
+        if (chunk) {
+          fullAccumulated += chunk;
+          modelUnreadBuffer += chunk;
+          backgroundJobBuffers.set(jobId, fullAccumulated);
+        }
+      } catch (e) {}
+    }
+  }
+
+  job.readOutput = function() {
+    pump();
+    const result = modelUnreadBuffer;
+    modelUnreadBuffer = '';
+    return result;
+  };
+
+  job.__getLiveOutput = function() {
+    pump();
+    return fullAccumulated;
+  };
+
+  if (!backgroundJobBuffers.has(jobId)) {
+    backgroundJobBuffers.set(jobId, '');
+  }
 }
 
 export function apply(ctx) {
-  ctx.logger?.info?.('dsh-plugin-live-terminal host loaded, hooking subprocess...');
+  ctx.logger?.info?.('dsh-plugin-live-terminal host loaded, hooking subprocess and jobs...');
 
-  // Optional registration if shellEnv service is mounted
+  // 1. Optional registration if shellEnv service is mounted
   ctx.inject(['shellEnv'], (envCtx) => {
     try {
       envCtx.shellEnv.register({
@@ -78,48 +133,35 @@ export function apply(ctx) {
     }
   });
 
-  // Optional hook for background jobs registry to link jobId directly
+  // 2. Hook background jobs registry to intercept output streaming
   ctx.inject(['jobs'], (jobsCtx) => {
     try {
+      jobsRegistry = jobsCtx.jobs;
       const origJobsStart = jobsCtx.jobs.start.bind(jobsCtx.jobs);
+
       jobsCtx.jobs.start = function(spec) {
-        let capturedProc = null;
-        const origRun = spec.run;
-        if (typeof origRun === 'function') {
-          spec.run = function() {
-            const prev = latestSpawnedProc;
-            const hooks = origRun.call(this);
-            if (latestSpawnedProc && latestSpawnedProc !== prev) {
-              capturedProc = latestSpawnedProc;
-            }
-            return hooks;
-          };
-        }
         const jobId = origJobsStart(spec);
         if (jobId) {
           const jid = String(jobId);
-          if (!capturedProc && spec.label) {
-            for (const p of activeProcesses.values()) {
-              if (p.active && matchesCommand(p, spec.label)) {
-                capturedProc = p;
-                break;
-              }
+          try {
+            const job = jobsCtx.jobs.store?.get(jobId);
+            if (job) {
+              setupJobOutputInterception(jid, job);
+              ctx.logger?.info?.(`[dsh-plugin-live-terminal] Intercepted background job ${jid}`);
             }
-          }
-          if (capturedProc) {
-            capturedProc.jobId = jid;
-            activeProcesses.set(jid, capturedProc);
-            ctx.logger?.info?.(`[dsh-plugin-live-terminal] Linked background jobId=${jid} to proc ${capturedProc.id}`);
+          } catch (e) {
+            ctx.logger?.warn?.(`[dsh-plugin-live-terminal] Failed to intercept job ${jid}: ${e?.message || e}`);
           }
         }
         return jobId;
       };
-      ctx.logger?.info?.('dsh-plugin-live-terminal hooked jobs.start for background job correlation');
+      ctx.logger?.info?.('dsh-plugin-live-terminal hooked jobs.start for background job streaming');
     } catch (e) {
       ctx.logger?.warn?.(`dsh-plugin-live-terminal failed to hook jobs: ${e?.message || e}`);
     }
   });
 
+  // 3. Hook subprocess.spawn for foreground command output streaming
   const originalSpawn = ctx.subprocess.spawn.bind(ctx.subprocess);
   ctx.subprocess.spawn = function(spec) {
     const handle = originalSpawn(spec);
@@ -182,7 +224,6 @@ export function apply(ctx) {
         procRecord.finishedAt = Date.now();
         procRecord.lastUpdated = Date.now();
 
-        // Keep completed records in cache, pruning only when count exceeds 50
         pruneCompletedProcesses();
       });
     }
@@ -190,7 +231,7 @@ export function apply(ctx) {
     return handle;
   };
 
-  // Register HTTP route for output retrieval
+  // 4. HTTP route for output retrieval (both background jobs and foreground processes)
   ctx.webServer.register({
     kind: 'exact',
     path: '/api/live-terminal/output',
@@ -210,9 +251,83 @@ export function apply(ctx) {
       const qSessionId = reqUrl.searchParams.get('sessionId');
       const qCommand = reqUrl.searchParams.get('command');
 
+      // --- A. Prioritize lookup via jobs registry (for background jobs) ---
+      const jobs = jobsRegistry || ctx.jobs || ctx.get?.('jobs');
+
+      if (qJobId) {
+        let job = jobs?.store?.get(qJobId);
+        if (!job && jobs?.store) {
+          for (const [id, j] of jobs.store.entries()) {
+            if (String(id) === qJobId) {
+              job = j;
+              break;
+            }
+          }
+        }
+
+        if (job) {
+          if (!job.__liveTerminalIntercepted) {
+            setupJobOutputInterception(qJobId, job);
+          }
+          const isTerminal = job.status === 'completed' || job.status === 'killed' || job.status === 'failed';
+          let fullOutput = job.__getLiveOutput ? job.__getLiveOutput() : (backgroundJobBuffers.get(qJobId) || '');
+          if (isTerminal && job.output && job.output.length > fullOutput.length) {
+            fullOutput = job.output;
+            backgroundJobBuffers.set(qJobId, fullOutput);
+          }
+
+          return res.end(JSON.stringify({
+            found: true,
+            active: !isTerminal,
+            status: job.status,
+            jobId: qJobId,
+            command: job.label || '',
+            output: fullOutput
+          }));
+        }
+
+        if (backgroundJobBuffers.has(qJobId)) {
+          return res.end(JSON.stringify({
+            found: true,
+            active: false,
+            status: 'completed',
+            jobId: qJobId,
+            output: backgroundJobBuffers.get(qJobId)
+          }));
+        }
+      }
+
+      // Check jobs by command if qJobId was not provided but qCommand is
+      if (!qJobId && qCommand && jobs?.store) {
+        for (const [id, job] of jobs.store.entries()) {
+          if (matchesCommand(job.label, qCommand)) {
+            const jid = String(id);
+            if (!job.__liveTerminalIntercepted) {
+              setupJobOutputInterception(jid, job);
+            }
+            const isTerminal = job.status === 'completed' || job.status === 'killed' || job.status === 'failed';
+            let fullOutput = job.__getLiveOutput ? job.__getLiveOutput() : (backgroundJobBuffers.get(jid) || '');
+            if (isTerminal && job.output && job.output.length > fullOutput.length) {
+              fullOutput = job.output;
+              backgroundJobBuffers.set(jid, fullOutput);
+            }
+
+            return res.end(JSON.stringify({
+              found: true,
+              active: !isTerminal,
+              status: job.status,
+              jobId: jid,
+              command: job.label || '',
+              output: fullOutput
+            }));
+          }
+        }
+      }
+
+      // --- B. Fallback to activeProcesses (foreground commands) ---
       let matched = null;
 
-      // 1. By jobId
+      // 1. By jobId in activeProcesses
       if (qJobId) {
         if (activeProcesses.has(qJobId)) {
           matched = activeProcesses.get(qJobId);
@@ -325,7 +440,7 @@ export function apply(ctx) {
     }
   });
 
-  // Register HTTP route to stop a running process
+  // 5. HTTP route to stop a running background job or foreground process
   ctx.webServer.register({
     kind: 'exact',
     path: '/api/live-terminal/stop',
@@ -343,20 +458,51 @@ export function apply(ctx) {
       const qJobId = reqUrl.searchParams.get('jobId');
       const qId = reqUrl.searchParams.get('id') || reqUrl.searchParams.get('callId');
 
-      let targetProc = null;
+      let killed = false;
+
+      // 1. Kill background job via jobs registry
       if (qJobId) {
-        targetProc = activeProcesses.get(qJobId);
-        if (!targetProc) {
-          for (const p of activeProcesses.values()) {
-            if (p.jobId === qJobId) {
-              targetProc = p;
+        const jobs = jobsRegistry || ctx.jobs || ctx.get?.('jobs');
+        let job = jobs?.store?.get(qJobId);
+        if (!job && jobs?.store) {
+          for (const [id, j] of jobs.store.entries()) {
+            if (String(id) === qJobId) {
+              job = j;
               break;
             }
           }
         }
+
+        if (job) {
+          if (typeof job.cancel === 'function') {
+            try {
+              job.cancel('Stopped by user from Live Terminal');
+              job.status = 'stopping';
+              killed = true;
+              ctx.logger?.info?.(`[dsh-plugin-live-terminal] Cancelled background job ${qJobId}`);
+            } catch (e) {}
+          }
+        }
+
+        if (!killed && jobs && typeof jobs.kill === 'function') {
+          try {
+            jobs.kill(qJobId, job?.owner, 'Stopped by user from Live Terminal');
+            killed = true;
+          } catch (e) {}
+        }
+
+        const prev = backgroundJobBuffers.get(qJobId) || '';
+        if (!prev.includes('[Process stopped by user]')) {
+          backgroundJobBuffers.set(qJobId, (prev ? prev + '\n' : '') + '[Process stopped by user]\n');
+        }
       }
 
-      if (!targetProc && qId) {
+      // 2. Kill foreground process via activeProcesses handle
+      let targetProc = null;
+      if (!killed && qJobId) {
+        targetProc = activeProcesses.get(qJobId);
+      }
+      if (!killed && !targetProc && qId) {
         targetProc = activeProcesses.get(qId);
         if (!targetProc) {
           for (const p of activeProcesses.values()) {
@@ -368,20 +514,6 @@ export function apply(ctx) {
         }
       }
 
-      let killed = false;
-
-      // 1. Kill via ctx.jobs if available
-      if (qJobId && ctx.jobs) {
-        try {
-          ctx.jobs.kill(qJobId, undefined, 'Stopped by user from Live Terminal');
-          killed = true;
-          ctx.logger?.info?.(`[dsh-plugin-live-terminal] Killed job ${qJobId} via ctx.jobs`);
-        } catch (e) {
-          ctx.logger?.warn?.(`[dsh-plugin-live-terminal] ctx.jobs.kill failed: ${e?.message || e}`);
-        }
-      }
-
-      // 2. Kill via subprocess handle
       if (targetProc && targetProc.handle) {
         try {
           if (typeof targetProc.handle.terminate === 'function') {
