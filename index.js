@@ -612,6 +612,36 @@ export function apply(ctx) {
         }
       }
 
+      // 4. Fallback: If not killed and no specific jobId was given (e.g. generic wait block), cancel any active background job
+      if (!killed && !qJobId) {
+        const jobs = jobsRegistry || ctx.jobs || ctx.get?.('jobs');
+        if (jobs?.store) {
+          for (const [id, job] of jobs.store.entries()) {
+            if (job.status === 'running' || job.status === 'stopping') {
+              if (typeof job.cancel === 'function') {
+                try {
+                  job.cancel('Stopped by user from Live Terminal');
+                  job.status = 'stopping';
+                  killed = true;
+                  ctx.logger?.info?.(`[dsh-plugin-live-terminal] Cancelled running background job ${id} (wait fallback)`);
+                } catch (e) {}
+              }
+              if (!killed && typeof jobs.kill === 'function') {
+                try {
+                  jobs.kill(String(id), job.owner, 'Stopped by user from Live Terminal');
+                  killed = true;
+                } catch (e) {}
+              }
+              const prev = backgroundJobBuffers.get(String(id)) || '';
+              if (!prev.includes('[Process stopped by user]')) {
+                backgroundJobBuffers.set(String(id), (prev ? prev + '\n' : '') + '[Process stopped by user]\n');
+              }
+              break;
+            }
+          }
+        }
+      }
+
       res.end(JSON.stringify({
         success: true,
         killed,

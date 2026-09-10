@@ -176,7 +176,7 @@ window.__ModuleLoader__.load({
           opacity: 1 !important;
         }
 
-        /* Stop button next to Inspect button */
+        /* Stop button general styling */
         .dsh-live-stop-btn {
           display: inline-flex;
           align-items: center;
@@ -214,6 +214,14 @@ window.__ModuleLoader__.load({
           height: 9px;
           fill: currentColor;
           flex: none;
+        }
+
+        /* Stop button positioned on disclosure header row (for wait blocks) */
+        .dsh-live-header-stop-btn {
+          flex: none;
+          margin-left: auto;
+          margin-right: 8px;
+          z-index: 2;
         }
       `;
       document.head.appendChild(style);
@@ -311,6 +319,99 @@ window.__ModuleLoader__.load({
       }
 
       return false;
+    }
+
+    // Check if a card belongs to the tool_call group with "wait" parameter (e.g. job_output or any tool with wait: true)
+    function isWaitToolCard(card) {
+      if (!card) return false;
+
+      const toolAttr = (card.getAttribute('data-tool') || card.querySelector('[data-tool]')?.getAttribute('data-tool') || '').toLowerCase().trim();
+      if (toolAttr === 'job_output') {
+        return true;
+      }
+
+      const titleEl = card.querySelector('[class*="title"]');
+      const title = titleEl ? titleEl.textContent.trim().toLowerCase() : '';
+      if (title.includes('read output from background job') || title.includes('job_output')) {
+        return true;
+      }
+
+      // Check ioSections for wait parameter
+      const ioSections = card.querySelectorAll('[class*="ioSection"]');
+      for (const sec of ioSections) {
+        const label = sec.querySelector('[class*="ioLabel"]')?.textContent?.trim();
+        if (label === 'IN' || label === '输入') {
+          const text = sec.querySelector('[class*="ioText"]')?.textContent || '';
+          if (/"wait"\s*:\s*true/i.test(text)) {
+            return true;
+          }
+        }
+      }
+
+      // Check card text
+      const cardText = card.textContent || '';
+      if (/"wait"\s*:\s*true/i.test(cardText) && (cardText.includes('job_id') || cardText.includes('jobId') || toolAttr.includes('job') || cardText.includes('background job'))) {
+        return true;
+      }
+
+      return false;
+    }
+
+    function extractWaitInfo(card) {
+      let callId = card.getAttribute('data-chat-call-id');
+      if (!callId) {
+        const callRow = card.closest('[data-chat-call-id]');
+        if (callRow) callId = callRow.getAttribute('data-chat-call-id');
+      }
+      if (!callId) {
+        const anchor = card.getAttribute('data-chat-anchor-key') || card.closest('[data-chat-anchor-key]')?.getAttribute('data-chat-anchor-key');
+        if (anchor && anchor.startsWith('call:')) {
+          callId = anchor.slice(5);
+        }
+      }
+
+      let jobId = card.dataset.jobId || null;
+
+      const ioSections = card.querySelectorAll('[class*="ioSection"]');
+      for (const sec of ioSections) {
+        const label = sec.querySelector('[class*="ioLabel"]')?.textContent?.trim();
+        const textEl = sec.querySelector('[class*="ioText"]');
+        const text = textEl ? textEl.textContent.trim() : '';
+        if (!text) continue;
+
+        if (label === 'IN' || label === '输入') {
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed.job_id) jobId = parsed.job_id;
+            if (parsed.jobId) jobId = parsed.jobId;
+          } catch (e) {
+            const m = text.match(/"job_id"\s*:\s*"([^"]+)"/i) || text.match(/"jobId"\s*:\s*"([^"]+)"/i);
+            if (m) jobId = m[1];
+          }
+        }
+      }
+
+      if (!jobId) {
+        const titleEl = card.querySelector('[class*="title"]');
+        const title = titleEl ? titleEl.textContent : '';
+        const mTitle = title.match(/background job\s+([a-zA-Z0-9_-]+)/i);
+        if (mTitle) jobId = mTitle[1];
+      }
+
+      if (!jobId) {
+        const cardText = card.textContent || '';
+        const m = cardText.match(/"job_id"\s*:\s*"([^"]+)"/i) || cardText.match(/background job\s+([a-zA-Z0-9_-]+)/i);
+        if (m) jobId = m[1];
+      }
+
+      if (jobId) {
+        card.dataset.jobId = jobId;
+      }
+
+      return {
+        jobId: jobId || null,
+        callId: callId || null
+      };
     }
 
     function extractCommandInfo(card) {
@@ -428,6 +529,7 @@ window.__ModuleLoader__.load({
           if (key) knownJobStatuses.set(key, false);
 
           updateHeaderDot(card, false);
+          updateHeaderStopButton(card, { jobId, callId }, false);
 
           if (btn) btn.remove();
 
@@ -446,6 +548,22 @@ window.__ModuleLoader__.load({
             liveBox.dataset.settled = 'true';
             activeContainers.delete(liveBox);
             stopPollingIfEmpty();
+          }
+
+          // If this was a wait block, also update any matching background pwsh cards on screen
+          if (jobId) {
+            document.querySelectorAll(`[data-job-id="${jobId}"]`).forEach((otherCard) => {
+              updateHeaderDot(otherCard, false);
+              const otherBox = otherCard.querySelector('.dsh-live-terminal-block');
+              if (otherBox) {
+                const dot = otherBox.querySelector('.dsh-live-terminal-dot');
+                if (dot) dot.classList.add('settled');
+                otherBox.dataset.settled = 'true';
+                activeContainers.delete(otherBox);
+              }
+              const otherWrap = otherCard.querySelector('[class*="bodyWrap"]');
+              if (otherWrap) updateStopButtonInBody(otherWrap, otherCard, { jobId }, false);
+            });
           }
         }
       } catch (e) {
@@ -472,13 +590,51 @@ window.__ModuleLoader__.load({
         if (!dotEl) {
           dotEl = document.createElement('span');
           dotEl.className = 'dsh-live-header-dot';
-          dotEl.title = 'Background job is running...';
+          dotEl.title = 'Running...';
           headerRow.appendChild(dotEl);
         }
       } else {
         if (dotEl) {
           dotEl.remove();
         }
+      }
+    }
+
+    // Stop button positioned on disclosure header row (specifically for wait tool cards to allow early stop without expanding!)
+    function updateHeaderStopButton(card, info, isRunning) {
+      const headerRow = card.querySelector('[data-disclosure-row="true"]') ||
+                        card.querySelector('[class*="row"]');
+      if (!headerRow) return;
+
+      let stopBtn = headerRow.querySelector('.dsh-live-header-stop-btn');
+      if (isRunning) {
+        if (!stopBtn) {
+          stopBtn = document.createElement('button');
+          stopBtn.type = 'button';
+          stopBtn.className = 'dsh-live-stop-btn dsh-live-header-stop-btn';
+          stopBtn.title = 'Stop wait and cancel background job early';
+          stopBtn.innerHTML = `
+            <svg viewBox="0 0 16 16" fill="currentColor">
+              <rect x="3" y="3" width="10" height="10" rx="2"></rect>
+            </svg>
+            <span>Stop</span>
+          `;
+
+          stopBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            stopJob(info.jobId, info.callId, stopBtn, card);
+          });
+
+          const dot = headerRow.querySelector('.dsh-live-header-dot');
+          if (dot) {
+            headerRow.insertBefore(stopBtn, dot);
+          } else {
+            headerRow.appendChild(stopBtn);
+          }
+        }
+      } else {
+        if (stopBtn) stopBtn.remove();
       }
     }
 
@@ -650,7 +806,7 @@ window.__ModuleLoader__.load({
         }
 
         const candidates = document.querySelectorAll(
-          '[data-tool="pwsh"], [data-tool="bash"], [data-variant="bash"]'
+          '[data-tool], [data-variant], [data-chat-call-id], [class*="callRow"]'
         );
         const seenCards = new Set();
 
@@ -663,56 +819,75 @@ window.__ModuleLoader__.load({
           if (seenCards.has(card)) return;
           seenCards.add(card);
 
-          if (!isAllowedShellCard(card)) return;
+          // 1. Sync shell cards (pwsh / bash)
+          if (isAllowedShellCard(card)) {
+            const info = extractCommandInfo(card);
+            let matchedJob = null;
 
-          const info = extractCommandInfo(card);
-          let matchedJob = null;
-
-          if (info.jobId) {
-            matchedJob = data.jobs.find(j => j.id === info.jobId);
-          } else {
-            const cardText = card.textContent || '';
-            matchedJob = data.jobs.find(j => {
-              if (!j.command) return false;
-              return matchesCommand(cardText, j.command) || matchesCommand(info.command, j.command);
-            });
-            if (matchedJob) {
-              card.dataset.jobId = matchedJob.id;
-              card.dataset.isBackground = 'true';
-              info.jobId = matchedJob.id;
-              info.isBackground = true;
+            if (info.jobId) {
+              matchedJob = data.jobs.find(j => j.id === info.jobId);
+            } else {
+              const cardText = card.textContent || '';
+              matchedJob = data.jobs.find(j => {
+                if (!j.command) return false;
+                return matchesCommand(cardText, j.command) || matchesCommand(info.command, j.command);
+              });
+              if (matchedJob) {
+                card.dataset.jobId = matchedJob.id;
+                card.dataset.isBackground = 'true';
+                info.jobId = matchedJob.id;
+                info.isBackground = true;
+              }
             }
-          }
 
-          if (matchedJob) {
-            // SHOW / HIDE GREEN DOT ON HEADER ROW EVEN WHEN CARD IS COLLAPSED!
-            updateHeaderDot(card, matchedJob.active);
+            if (matchedJob) {
+              updateHeaderDot(card, matchedJob.active);
 
-            const bodyWrap = card.querySelector('[class*="bodyWrap"]');
-            if (bodyWrap) {
-              updateStopButtonInBody(bodyWrap, card, info, matchedJob.active);
-              const liveBox = bodyWrap.querySelector('.dsh-live-terminal-block');
-              if (liveBox) {
-                const dot = liveBox.querySelector('.dsh-live-terminal-dot');
-                if (matchedJob.active) {
-                  if (dot) dot.classList.remove('settled');
-                  delete liveBox.dataset.settled;
-                  activeContainers.add(liveBox);
-                  startPolling();
-                } else {
-                  if (dot) dot.classList.add('settled');
-                  liveBox.dataset.settled = 'true';
-                  activeContainers.delete(liveBox);
-                  const outEl = liveBox.querySelector('.dsh-live-terminal-output');
-                  if (outEl && (!jobOutputCache.has(matchedJob.id) || outEl.textContent === 'Loading output...')) {
-                    fetchSettledOutput(liveBox, info);
+              const bodyWrap = card.querySelector('[class*="bodyWrap"]');
+              if (bodyWrap) {
+                updateStopButtonInBody(bodyWrap, card, info, matchedJob.active);
+                const liveBox = bodyWrap.querySelector('.dsh-live-terminal-block');
+                if (liveBox) {
+                  const dot = liveBox.querySelector('.dsh-live-terminal-dot');
+                  if (matchedJob.active) {
+                    if (dot) dot.classList.remove('settled');
+                    delete liveBox.dataset.settled;
+                    activeContainers.add(liveBox);
+                    startPolling();
+                  } else {
+                    if (dot) dot.classList.add('settled');
+                    liveBox.dataset.settled = 'true';
+                    activeContainers.delete(liveBox);
+                    const outEl = liveBox.querySelector('.dsh-live-terminal-output');
+                    if (outEl && (!jobOutputCache.has(matchedJob.id) || outEl.textContent === 'Loading output...')) {
+                      fetchSettledOutput(liveBox, info);
+                    }
                   }
                 }
               }
+            } else if (info.isBackground && info.jobId) {
+              const isActive = knownJobStatuses.get(info.jobId) ?? false;
+              updateHeaderDot(card, isActive);
             }
-          } else if (info.isBackground && info.jobId) {
-            const isActive = knownJobStatuses.get(info.jobId) ?? false;
-            updateHeaderDot(card, isActive);
+          }
+
+          // 2. Sync wait tool cards (job_output or tools with wait: true)
+          if (isWaitToolCard(card)) {
+            const waitInfo = extractWaitInfo(card);
+            const stateAttr = (
+              card.getAttribute('data-state') ||
+              card.querySelector('[data-state]')?.getAttribute('data-state') ||
+              ''
+            ).toLowerCase().trim();
+            const isRunning = stateAttr === 'running';
+
+            updateHeaderDot(card, isRunning);
+            updateHeaderStopButton(card, waitInfo, isRunning);
+
+            const bodyWrap = card.querySelector('[class*="bodyWrap"]');
+            if (bodyWrap) {
+              updateStopButtonInBody(bodyWrap, card, waitInfo, isRunning);
+            }
           }
         });
       } catch (e) {}
@@ -912,18 +1087,18 @@ window.__ModuleLoader__.load({
       try {
         ensureStyles();
 
-        // Clean up stray indicators on non-shell cards
-        const strayDots = document.querySelectorAll('.dsh-live-header-dot, .dsh-live-header-actions');
+        // Clean up stray indicators on non-target cards
+        const strayDots = document.querySelectorAll('.dsh-live-header-dot, .dsh-live-header-actions, .dsh-live-header-stop-btn');
         strayDots.forEach((el) => {
           const card = el.closest('[data-tool], [data-variant], [class*="root"]');
-          if (card && !isAllowedShellCard(card)) {
+          if (card && !isAllowedShellCard(card) && !isWaitToolCard(card)) {
             el.remove();
           }
         });
 
-        // Scan only allowed shell blocks (pwsh / bash)
+        // Scan all tool cards
         const candidates = document.querySelectorAll(
-          '[data-tool="pwsh"], [data-tool="bash"], [data-variant="bash"]'
+          '[data-tool], [data-variant], [data-chat-call-id], [class*="callRow"]'
         );
 
         const seenCards = new Set();
@@ -937,6 +1112,37 @@ window.__ModuleLoader__.load({
           if (seenCards.has(card)) return;
           seenCards.add(card);
 
+          // ==========================================
+          // A. WAIT TOOL BLOCK (job_output / wait: true)
+          // ==========================================
+          if (isWaitToolCard(card)) {
+            const waitInfo = extractWaitInfo(card);
+            const stateAttr = (
+              node.getAttribute('data-state') ||
+              card.getAttribute('data-state') ||
+              card.querySelector('[data-state]')?.getAttribute('data-state') ||
+              ''
+            ).toLowerCase().trim();
+
+            const isRunning = stateAttr === 'running';
+
+            // 1. Header pulsing green dot
+            updateHeaderDot(card, isRunning);
+
+            // 2. Header Stop button (shows on header row for quick early stopping even when collapsed!)
+            updateHeaderStopButton(card, waitInfo, isRunning);
+
+            // 3. Body Stop button next to Inspect (when expanded)
+            const bodyWrap = card.querySelector('[class*="bodyWrap"]');
+            if (bodyWrap) {
+              updateStopButtonInBody(bodyWrap, card, waitInfo, isRunning);
+            }
+            return;
+          }
+
+          // ==========================================
+          // B. SHELL BLOCK (pwsh / bash)
+          // ==========================================
           if (!isAllowedShellCard(card)) return;
 
           const info = extractCommandInfo(card);
@@ -1074,6 +1280,7 @@ window.__ModuleLoader__.load({
               target.classList?.contains('dsh-live-terminal-block') ||
               target.classList?.contains('dsh-live-header-dot') ||
               target.classList?.contains('dsh-live-stop-btn') ||
+              target.classList?.contains('dsh-live-header-stop-btn') ||
               target.classList?.contains('dsh-live-copy-btn') ||
               target.classList?.contains('dsh-live-footer-row') ||
               target.closest?.('.dsh-live-terminal-block') ||
