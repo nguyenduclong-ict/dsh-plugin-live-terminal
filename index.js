@@ -407,8 +407,8 @@ export function apply(ctx) {
         targetProc.active = false;
         targetProc.finishedAt = Date.now();
         targetProc.lastUpdated = Date.now();
-        if (!targetProc.output.includes('[Lệnh đã dừng bởi người dùng]')) {
-          targetProc.output += (targetProc.output ? '\n' : '') + '[Lệnh đã dừng bởi người dùng]\n';
+        if (!targetProc.output.includes('[Process stopped by user]')) {
+          targetProc.output += (targetProc.output ? '\n' : '') + '[Process stopped by user]\n';
         }
       }
 

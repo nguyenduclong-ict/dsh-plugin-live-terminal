@@ -375,7 +375,7 @@ window.__ModuleLoader__.load({
           <svg viewBox="0 0 16 16" fill="currentColor">
             <rect x="3" y="3" width="10" height="10" rx="2"></rect>
           </svg>
-          <span>Đang dừng...</span>
+          <span>Stopping...</span>
         `;
       }
 
@@ -400,13 +400,13 @@ window.__ModuleLoader__.load({
 
             const badge = liveBox.querySelector('.dsh-live-terminal-badge');
             if (badge) {
-              badge.textContent = 'ĐÃ DỪNG';
+              badge.textContent = 'STOPPED';
               badge.className = 'dsh-live-terminal-badge settled';
             }
 
             const outEl = liveBox.querySelector('.dsh-live-terminal-output');
-            if (outEl && !outEl.textContent.includes('[Lệnh đã dừng bởi người dùng]')) {
-              outEl.textContent += (outEl.textContent ? '\n' : '') + '[Lệnh đã dừng bởi người dùng]\n';
+            if (outEl && !outEl.textContent.includes('[Process stopped by user]')) {
+              outEl.textContent += (outEl.textContent ? '\n' : '') + '[Process stopped by user]\n';
               outEl.scrollTop = outEl.scrollHeight;
             }
 
@@ -423,7 +423,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // Chỉ hiển thị CHẤM XANH trên header data-disclosure-row
+    // Header dot indicator on data-disclosure-row
     function updateHeaderDot(card, isRunning) {
       const headerRow = card.querySelector('[data-disclosure-row="true"]') ||
                         card.querySelector('[class*="row"]');
@@ -438,7 +438,7 @@ window.__ModuleLoader__.load({
         if (!dotEl) {
           dotEl = document.createElement('span');
           dotEl.className = 'dsh-live-header-dot';
-          dotEl.title = 'Lệnh đang chạy...';
+          dotEl.title = 'Command is running...';
           headerRow.appendChild(dotEl);
         }
       } else {
@@ -448,7 +448,7 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // Hiển thị nút STOP cạnh nút Inspect ở footer của bodyWrap
+    // Stop button positioned next to Inspect button in bodyWrap footer
     function updateStopButtonInBody(bodyWrap, card, info, isRunning) {
       if (!bodyWrap) return;
 
@@ -473,12 +473,12 @@ window.__ModuleLoader__.load({
           stopBtn = document.createElement('button');
           stopBtn.type = 'button';
           stopBtn.className = 'dsh-live-stop-btn';
-          stopBtn.title = 'Dừng tiến trình (Stop command)';
+          stopBtn.title = 'Stop command';
           stopBtn.innerHTML = `
             <svg viewBox="0 0 16 16" fill="currentColor">
               <rect x="3" y="3" width="10" height="10" rx="2"></rect>
             </svg>
-            <span>Dừng lệnh</span>
+            <span>Stop</span>
           `;
 
           stopBtn.addEventListener('click', (e) => {
@@ -551,14 +551,39 @@ window.__ModuleLoader__.load({
             const dot = el.querySelector('.dsh-live-terminal-dot');
             const badge = el.querySelector('.dsh-live-terminal-badge');
 
+            const isBackground = el.dataset.isBackground === 'true';
+            const node = el.closest('[data-tool="pwsh"], [data-tool="bash"], [data-variant="bash"]');
+            const stateAttr = (
+              node?.getAttribute('data-state') ||
+              card?.getAttribute('data-state') ||
+              card?.querySelector?.('[data-state]')?.getAttribute('data-state') ||
+              ''
+            ).toLowerCase().trim();
+            const isStateFinished = stateAttr === 'ok' || stateAttr === 'error' || (stateAttr && stateAttr !== 'running');
+
+            // If foreground command has finished in DOM, settle immediately
+            if (!isBackground && isStateFinished) {
+              if (card) {
+                updateHeaderDot(card, false);
+                const bodyWrap = card.querySelector('[class*="bodyWrap"]');
+                if (bodyWrap) updateStopButtonInBody(bodyWrap, card, { jobId, callId }, false);
+              }
+              if (dot) dot.classList.add('settled');
+              el.dataset.settled = 'true';
+              activeContainers.delete(el);
+              const statusKey = jobId || callId;
+              if (statusKey) knownJobStatuses.set(statusKey, false);
+              return;
+            }
+
             if (data.found) {
               const text = data.output || '';
               if (outEl) {
                 if (text && outEl.textContent !== text) {
                   outEl.textContent = text;
                   outEl.scrollTop = outEl.scrollHeight;
-                } else if (!text && outEl.textContent.startsWith('Đang')) {
-                  outEl.textContent = data.active ? '(Tiến trình đang chạy, chưa có output...)' : '(Tiến trình đã kết thúc, không có output)';
+                } else if (!text && (outEl.textContent.startsWith('Loading') || outEl.textContent.startsWith('Waiting') || outEl.textContent.startsWith('Đang'))) {
+                  outEl.textContent = data.active ? '(Process is running, no output yet...)' : '(Process has completed, no output)';
                 }
               }
 
@@ -584,24 +609,22 @@ window.__ModuleLoader__.load({
 
                 if (dot) dot.classList.add('settled');
                 if (badge) {
-                  badge.textContent = 'HOÀN TẤT';
+                  badge.textContent = 'COMPLETED';
                   badge.className = 'dsh-live-terminal-badge settled';
                 }
 
-                if (el.dataset.isBackground === 'true') {
-                  el.dataset.settled = 'true';
-                  activeContainers.delete(el);
-                }
+                el.dataset.settled = 'true';
+                activeContainers.delete(el);
               } else {
-                if (card) {
+                if (card && !isStateFinished) {
                   updateHeaderDot(card, true);
                   const bodyWrap = card.querySelector('[class*="bodyWrap"]');
                   if (bodyWrap) updateStopButtonInBody(bodyWrap, card, { jobId, callId }, true);
                 }
               }
             } else {
-              if (el.dataset.isBackground === 'true' && outEl && outEl.textContent === 'Đang tải output...') {
-                outEl.textContent = 'Đang chờ output từ background job (' + (jobId || 'đang chạy') + ')...';
+              if (isBackground && outEl && (outEl.textContent === 'Loading output...' || outEl.textContent === 'Đang tải output...')) {
+                outEl.textContent = 'Waiting for background job output (' + (jobId || 'running') + ')...';
               }
             }
           } catch (e) {}
@@ -666,12 +689,35 @@ window.__ModuleLoader__.load({
           const info = extractCommandInfo(card);
           const isBackground = !!info.jobId || (info.command && /"run_in_background"\s*:\s*true/.test(card.innerHTML));
 
-          const stateAttr = card.getAttribute('data-state') || card.querySelector('[data-state]')?.getAttribute('data-state');
-          const isStateRunning = stateAttr === 'running';
+          const stateAttr = (
+            node.getAttribute('data-state') ||
+            card.getAttribute('data-state') ||
+            card.querySelector('[data-state]')?.getAttribute('data-state') ||
+            ''
+          ).toLowerCase().trim();
 
+          const isStateRunning = stateAttr === 'running';
+          const isStateFinished = stateAttr === 'ok' || stateAttr === 'error' || (stateAttr && stateAttr !== 'running');
+
+          let isRunning = false;
           const statusKey = info.jobId || info.callId;
-          const cachedActive = statusKey ? knownJobStatuses.get(statusKey) : undefined;
-          const isRunning = cachedActive !== undefined ? cachedActive : (isStateRunning || isBackground);
+
+          if (isBackground) {
+            const cachedActive = statusKey ? knownJobStatuses.get(statusKey) : undefined;
+            if (cachedActive !== undefined) {
+              isRunning = cachedActive;
+            } else {
+              isRunning = !isStateFinished;
+            }
+          } else {
+            // Foreground command: strictly governed by data-state
+            if (isStateFinished) {
+              isRunning = false;
+              if (statusKey) knownJobStatuses.set(statusKey, false);
+            } else {
+              isRunning = isStateRunning;
+            }
+          }
 
           // 1. Cập nhật CHẤM XANH trên header
           updateHeaderDot(card, isRunning);
@@ -685,7 +731,7 @@ window.__ModuleLoader__.load({
           let liveBox = card.querySelector('.dsh-live-terminal-block');
 
           if (isExpanded && bodyWrap) {
-            // Nút Stop cạnh Inspect ở chân bodyWrap
+            // Nút Stop cạnh Inspect ở chân bodyWrap (chỉ hiển thị khi isRunning === true)
             updateStopButtonInBody(bodyWrap, card, info, isRunning);
 
             if (!liveBox) {
@@ -708,7 +754,7 @@ window.__ModuleLoader__.load({
                   </div>
                   <button class="dsh-live-copy-btn" type="button" title="Copy command">Copy</button>
                 </div>
-                <div class="dsh-live-terminal-output">Đang tải output...</div>
+                <div class="dsh-live-terminal-output">Loading output...</div>
               `;
 
               const copyBtn = liveBox.querySelector('.dsh-live-copy-btn');
@@ -748,7 +794,24 @@ window.__ModuleLoader__.load({
               }
             }
 
-            if (liveBox.dataset.settled !== 'true') {
+            // Sync the dot state and settled attribute on existing liveBox
+            if (liveBox) {
+              const dot = liveBox.querySelector('.dsh-live-terminal-dot');
+              if (dot) {
+                if (isRunning) {
+                  dot.classList.remove('settled');
+                } else {
+                  dot.classList.add('settled');
+                }
+              }
+
+              if (!isRunning) {
+                liveBox.dataset.settled = 'true';
+                activeContainers.delete(liveBox);
+              }
+            }
+
+            if (liveBox.dataset.settled !== 'true' && isRunning) {
               activeContainers.add(liveBox);
               startPolling();
             }
@@ -769,11 +832,12 @@ window.__ModuleLoader__.load({
             const isBackground = box.dataset.isBackground === 'true';
             if (!isBackground) {
               const parentRow = box.closest('[data-state]');
-              if (parentRow && parentRow.getAttribute('data-state') !== 'running') {
+              const sAttr = parentRow?.getAttribute('data-state')?.toLowerCase();
+              if (sAttr && sAttr !== 'running') {
+                box.dataset.settled = 'true';
                 activeContainers.delete(box);
-                box.remove();
-                const defaultCard = parentRow.querySelector('[data-terminal]');
-                if (defaultCard) defaultCard.style.display = '';
+                const dot = box.querySelector('.dsh-live-terminal-dot');
+                if (dot) dot.classList.add('settled');
               }
             }
           }
