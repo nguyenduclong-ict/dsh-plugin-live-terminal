@@ -54,17 +54,29 @@ window.__ModuleLoader__.load({
 
         /* Pulsing green dot or gray settled dot inside liveBox */
         .dsh-live-terminal-dot {
+          display: inline-block !important;
           position: absolute;
           left: calc(-1 * var(--dsl-terminal-gutter) + 8px);
           top: 7px;
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
+          width: 8px !important;
+          height: 8px !important;
+          min-width: 8px !important;
+          min-height: 8px !important;
+          max-width: 8px !important;
+          max-height: 8px !important;
+          aspect-ratio: 1 / 1 !important;
+          border-radius: 50% !important;
           background: #22c55e;
           box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
           animation: dsh-live-pulse 1.2s infinite ease-in-out;
           user-select: none;
           pointer-events: none;
+          box-sizing: border-box !important;
+          padding: 0 !important;
+          margin: 0 !important;
+          line-height: 0 !important;
+          font-size: 0 !important;
+          flex-shrink: 0 !important;
         }
 
         .dsh-live-terminal-dot.settled {
@@ -74,8 +86,16 @@ window.__ModuleLoader__.load({
         }
 
         @keyframes dsh-live-pulse {
-          0%, 100% { opacity: 0.4; transform: scale(0.9); }
-          50% { opacity: 1; transform: scale(1.15); }
+          0%, 100% {
+            opacity: 0.4;
+            transform: scale(0.85);
+            box-shadow: 0 0 2px rgba(34, 197, 94, 0.3);
+          }
+          50% {
+            opacity: 1;
+            transform: scale(1.15);
+            box-shadow: 0 0 7px rgba(34, 197, 94, 0.8);
+          }
         }
 
         .dsh-live-terminal-cwd {
@@ -149,17 +169,31 @@ window.__ModuleLoader__.load({
           margin: 6px;
         }
 
-        /* Green pulsing dot in disclosure header row */
+        /* Green pulsing dot in disclosure header row - perfect circle */
         .dsh-live-header-dot {
-          width: 7px;
-          height: 7px;
-          border-radius: 50%;
+          display: inline-block !important;
+          width: 8px !important;
+          height: 8px !important;
+          min-width: 8px !important;
+          min-height: 8px !important;
+          max-width: 8px !important;
+          max-height: 8px !important;
+          aspect-ratio: 1 / 1 !important;
+          border-radius: 50% !important;
           background: #22c55e;
-          box-shadow: 0 0 5px rgba(34, 197, 94, 0.7);
+          box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
           animation: dsh-live-pulse 1.2s infinite ease-in-out;
-          flex: none;
-          margin-left: auto;
-          margin-right: 6px;
+          flex: none !important;
+          flex-shrink: 0 !important;
+          align-self: center !important;
+          margin-left: auto !important;
+          margin-right: 6px !important;
+          margin-top: 0 !important;
+          margin-bottom: 0 !important;
+          padding: 0 !important;
+          box-sizing: border-box !important;
+          line-height: 0 !important;
+          font-size: 0 !important;
         }
 
         /* Footer row containing Inspect and Stop buttons */
