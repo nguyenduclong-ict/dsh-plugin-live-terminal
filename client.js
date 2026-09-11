@@ -196,18 +196,14 @@ window.__ModuleLoader__.load({
           font-size: 0 !important;
         }
 
-        /* Footer row containing Inspect and Stop buttons */
+        /* Footer row containing Stop and View Job buttons */
         .dsh-live-footer-row {
-          display: flex;
+          display: inline-flex;
           align-items: center;
           gap: 8px;
-          margin: 4px 0 2px 4px;
+          margin: 4px 8px 4px 4px;
           flex: none;
-        }
-
-        .dsh-live-footer-row [class*="inspectButton"] {
-          margin: 0 !important;
-          opacity: 1 !important;
+          vertical-align: middle;
         }
 
         /* Stop button general styling */
@@ -439,24 +435,20 @@ window.__ModuleLoader__.load({
         return true;
       }
 
-      // Check ioSections for wait parameter
+      // Check ioSections for wait parameter or job_output
       const ioSections = card.querySelectorAll('[class*="ioSection"]');
       for (const sec of ioSections) {
         const label = sec.querySelector('[class*="ioLabel"]')?.textContent?.trim();
         if (label === 'IN' || label === '输入') {
           const text = sec.querySelector('[class*="ioText"]')?.textContent || '';
-          if (/"wait"\s*:\s*true/i.test(text)) {
+          if (/"wait"\s*:\s*true/i.test(text) || text.includes('job_output')) {
             return true;
           }
         }
       }
 
-      // Check card text
-      const cardText = card.textContent || '';
-      if (cardText.includes('job_output')) {
-        return true;
-      }
-      if (/"wait"\s*:\s*true/i.test(cardText) && (cardText.includes('job_id') || cardText.includes('jobId') || toolAttr.includes('job') || cardText.includes('background job'))) {
+      const summaryEl = card.querySelector('[class*="summary"]');
+      if (summaryEl && summaryEl.textContent.includes('job_output')) {
         return true;
       }
 
@@ -505,11 +497,12 @@ window.__ModuleLoader__.load({
       }
 
       if (!jobId) {
-        const cardText = card.textContent || '';
-        const m = cardText.match(/"job_id"\s*:\s*["']?([^"',}\s]+)/i) ||
-                  cardText.match(/"jobId"\s*:\s*["']?([^"',}\s]+)/i) ||
-                  cardText.match(/background job\s+([a-zA-Z0-9_-]+)/i);
-        if (m) jobId = m[1];
+        const summaryEl = card.querySelector('[class*="summary"]');
+        const summaryText = summaryEl ? summaryEl.textContent : '';
+        const mSum = summaryText.match(/"job_id"\s*:\s*["']?([^"',}\s]+)/i) ||
+                     summaryText.match(/"jobId"\s*:\s*["']?([^"',}\s]+)/i) ||
+                     summaryText.match(/background job\s+([a-zA-Z0-9_-]+)/i);
+        if (mSum) jobId = mSum[1];
       }
 
       if (jobId) {
@@ -570,15 +563,29 @@ window.__ModuleLoader__.load({
         }
       }
 
-      // Check raw text fallback for background job markers (even when collapsed)
+      // Check lightweight ioSections/title fallback for background job markers (avoid card.textContent)
       if (!jobId || !isBackground) {
-        const cardText = card.textContent || '';
-        const match = cardText.match(/started background job\s+([a-zA-Z0-9_-]+)/i);
-        if (match) {
-          jobId = match[1];
-          isBackground = true;
-        } else if (cardText.includes('"run_in_background"') && cardText.includes('true')) {
-          isBackground = true;
+        for (const sec of ioSections) {
+          const textEl = sec.querySelector('[class*="ioText"]');
+          const text = textEl ? textEl.textContent : '';
+          const match = text.match(/started background job\s+([a-zA-Z0-9_-]+)/i);
+          if (match) {
+            jobId = match[1];
+            isBackground = true;
+            break;
+          }
+          if (text.includes('"run_in_background"') && text.includes('true')) {
+            isBackground = true;
+          }
+        }
+        if (!jobId || !isBackground) {
+          const summaryEl = card.querySelector('[class*="summary"], [class*="title"]');
+          const sumText = summaryEl ? summaryEl.textContent : '';
+          const match = sumText.match(/started background job\s+([a-zA-Z0-9_-]+)/i);
+          if (match) {
+            jobId = match[1];
+            isBackground = true;
+          }
         }
       }
 
@@ -761,15 +768,19 @@ window.__ModuleLoader__.load({
           return card;
         }
 
-        // C. Check content match
-        const text = card.textContent || '';
-        if (text.includes(strJobId)) {
-          if (
-            text.toLowerCase().includes('started background job') ||
-            text.toLowerCase().includes('background job') ||
-            isAllowedShellCard(card)
-          ) {
-            matched.push(card);
+        // C. Check ioSection text match (avoid large card.textContent)
+        const textElements = card.querySelectorAll('[class*="ioText"], [class*="title"], [class*="summary"], [class*="promptLine"]');
+        for (const el of textElements) {
+          const text = el.textContent || '';
+          if (text.includes(strJobId)) {
+            if (
+              text.toLowerCase().includes('started background job') ||
+              text.toLowerCase().includes('background job') ||
+              isAllowedShellCard(card)
+            ) {
+              matched.push(card);
+              break;
+            }
           }
         }
       }
@@ -939,9 +950,8 @@ window.__ModuleLoader__.load({
           footerRow = document.createElement('div');
           footerRow.className = 'dsh-live-footer-row';
 
-          if (inspectBtn) {
+          if (inspectBtn && inspectBtn.parentNode === bodyWrap) {
             bodyWrap.insertBefore(footerRow, inspectBtn);
-            footerRow.appendChild(inspectBtn);
           } else {
             bodyWrap.appendChild(footerRow);
           }
@@ -1009,7 +1019,7 @@ window.__ModuleLoader__.load({
           stopBtn.remove();
         }
 
-        if (!footerRow.hasChildNodes()) {
+        if (!footerRow.querySelector('.dsh-live-view-job-btn') && !footerRow.querySelector('.dsh-live-stop-btn')) {
           footerRow.remove();
         }
       }
@@ -1121,6 +1131,45 @@ window.__ModuleLoader__.load({
       return liveBox;
     }
 
+    let isPerformingPluginDomUpdates = false;
+
+    function isPluginNode(node) {
+      if (!node || node.nodeType !== 1) return false;
+      const cls = node.className;
+      if (typeof cls === 'string' && cls.includes('dsh-live-')) return true;
+      if (node.classList && (
+        node.classList.contains('dsh-live-terminal-block') ||
+        node.classList.contains('dsh-live-header-dot') ||
+        node.classList.contains('dsh-live-footer-row') ||
+        node.classList.contains('dsh-live-stop-btn') ||
+        node.classList.contains('dsh-live-view-job-btn') ||
+        node.classList.contains('dsh-live-copy-btn') ||
+        node.classList.contains('dsh-live-target-highlight')
+      )) return true;
+      return false;
+    }
+
+    function isPluginMutation(m) {
+      const target = m.target;
+      if (target && target.nodeType === 1) {
+        if (isPluginNode(target) || target.closest?.('[class*="dsh-live-"]')) {
+          return true;
+        }
+      }
+      if (m.type === 'childList') {
+        const hasAdded = m.addedNodes && m.addedNodes.length > 0;
+        const hasRemoved = m.removedNodes && m.removedNodes.length > 0;
+        if (hasAdded || hasRemoved) {
+          const allAddedPlugin = !hasAdded || Array.from(m.addedNodes).every(n => isPluginNode(n));
+          const allRemovedPlugin = !hasRemoved || Array.from(m.removedNodes).every(n => isPluginNode(n));
+          if (allAddedPlugin && allRemovedPlugin) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
     // Periodic synchronization of all background jobs (runs globally even when blocks are collapsed)
     async function syncJobsStatus() {
       try {
@@ -1138,90 +1187,97 @@ window.__ModuleLoader__.load({
         );
         const seenCards = new Set();
 
-        candidates.forEach((node) => {
-          const card = node.closest('[data-chat-call-id]') ||
-                       node.closest('[class*="callRow"]') ||
-                       node.closest('[class*="card"]') ||
-                       node;
+        isPerformingPluginDomUpdates = true;
+        try {
+          candidates.forEach((node) => {
+            const card = node.closest('[data-chat-call-id]') ||
+                         node.closest('[class*="callRow"]') ||
+                         node.closest('[class*="card"]') ||
+                         node;
 
-          if (seenCards.has(card)) return;
-          seenCards.add(card);
+            if (seenCards.has(card)) return;
+            seenCards.add(card);
 
-          // 1. Sync shell cards (pwsh / bash)
-          if (isAllowedShellCard(card)) {
-            const info = extractCommandInfo(card);
-            let matchedJob = null;
+            // 1. Sync shell cards (pwsh / bash)
+            if (isAllowedShellCard(card)) {
+              const info = extractCommandInfo(card);
+              let matchedJob = null;
 
-            if (info.jobId) {
-              matchedJob = data.jobs.find(j => j.id === info.jobId);
-            } else if (info.isBackground) {
-              if (info.command) {
-                matchedJob = data.jobs.find(j => {
-                  if (!j.command) return false;
-                  return matchesCommand(info.command, j.command);
-                });
-                if (matchedJob) {
-                  card.dataset.jobId = matchedJob.id;
-                  card.dataset.isBackground = 'true';
-                  info.jobId = matchedJob.id;
-                }
-              }
-            }
-
-            if (matchedJob) {
-              updateHeaderDot(card, matchedJob.active);
-
-              const bodyWrap = card.querySelector('[class*="bodyWrap"]');
-              if (bodyWrap) {
-                updateStopButtonInBody(bodyWrap, card, info, matchedJob.active);
-                const liveBox = bodyWrap.querySelector('.dsh-live-terminal-block');
-                if (liveBox) {
-                  const dot = liveBox.querySelector('.dsh-live-terminal-dot');
-                  if (matchedJob.active) {
-                    if (dot) dot.classList.remove('settled');
-                    delete liveBox.dataset.settled;
-                    activeContainers.add(liveBox);
-                    startPolling();
-                  } else {
-                    if (dot) dot.classList.add('settled');
-                    liveBox.dataset.settled = 'true';
-                    activeContainers.delete(liveBox);
-                    const outEl = liveBox.querySelector('.dsh-live-terminal-output');
-                    if (outEl && (!jobOutputCache.has(matchedJob.id) || outEl.textContent === 'Loading output...')) {
-                      fetchSettledOutput(liveBox, info);
-                    }
+              if (info.jobId) {
+                matchedJob = data.jobs.find(j => j.id === info.jobId);
+              } else if (info.isBackground) {
+                if (info.command) {
+                  matchedJob = data.jobs.find(j => {
+                    if (!j.command) return false;
+                    return matchesCommand(info.command, j.command);
+                  });
+                  if (matchedJob) {
+                    card.dataset.jobId = matchedJob.id;
+                    card.dataset.isBackground = 'true';
+                    info.jobId = matchedJob.id;
                   }
                 }
               }
-            } else if (info.isBackground && info.jobId) {
-              const isActive = knownJobStatuses.get(info.jobId) ?? false;
-              updateHeaderDot(card, isActive);
+
+              if (matchedJob) {
+                updateHeaderDot(card, matchedJob.active);
+
+                const bodyWrap = card.querySelector('[class*="bodyWrap"]');
+                if (bodyWrap) {
+                  updateStopButtonInBody(bodyWrap, card, info, matchedJob.active);
+                  const liveBox = bodyWrap.querySelector('.dsh-live-terminal-block');
+                  if (liveBox) {
+                    const dot = liveBox.querySelector('.dsh-live-terminal-dot');
+                    if (matchedJob.active) {
+                      if (dot) dot.classList.remove('settled');
+                      delete liveBox.dataset.settled;
+                      activeContainers.add(liveBox);
+                      startPolling();
+                    } else {
+                      if (dot) dot.classList.add('settled');
+                      liveBox.dataset.settled = 'true';
+                      activeContainers.delete(liveBox);
+                      const outEl = liveBox.querySelector('.dsh-live-terminal-output');
+                      if (outEl && (!jobOutputCache.has(matchedJob.id) || outEl.textContent === 'Loading output...')) {
+                        fetchSettledOutput(liveBox, info);
+                      }
+                    }
+                  }
+                }
+              } else if (info.isBackground && info.jobId) {
+                const isActive = knownJobStatuses.get(info.jobId) ?? false;
+                updateHeaderDot(card, isActive);
+              }
             }
-          }
 
-          // 2. Sync wait tool cards (job_output or tools with wait: true)
-          if (isWaitToolCard(card)) {
-            const waitInfo = extractWaitInfo(card);
-            const stateAttr = (
-              card.getAttribute('data-state') ||
-              card.querySelector('[data-state]')?.getAttribute('data-state') ||
-              ''
-            ).toLowerCase().trim();
-            const isRunning = stateAttr === 'running';
+            // 2. Sync wait tool cards (job_output or tools with wait: true)
+            if (isWaitToolCard(card)) {
+              const waitInfo = extractWaitInfo(card);
+              const stateAttr = (
+                card.getAttribute('data-state') ||
+                card.querySelector('[data-state]')?.getAttribute('data-state') ||
+                ''
+              ).toLowerCase().trim();
+              const isRunning = stateAttr === 'running';
 
-            updateHeaderDot(card, isRunning);
+              updateHeaderDot(card, isRunning);
 
-            const bodyWrap = card.querySelector('[class*="bodyWrap"]');
-            const isExpanded = !!bodyWrap ||
-                               card.getAttribute('aria-expanded') === 'true' ||
-                               card.querySelector('[aria-expanded="true"]') !== null;
-            if (isExpanded && bodyWrap) {
-              updateStopButtonInBody(bodyWrap, card, waitInfo, isRunning);
-            } else if (bodyWrap) {
-              updateStopButtonInBody(bodyWrap, card, waitInfo, false);
+              const bodyWrap = card.querySelector('[class*="bodyWrap"]');
+              const isExpanded = !!bodyWrap ||
+                                 card.getAttribute('aria-expanded') === 'true' ||
+                                 card.querySelector('[aria-expanded="true"]') !== null;
+              if (isExpanded && bodyWrap) {
+                updateStopButtonInBody(bodyWrap, card, waitInfo, isRunning);
+              } else if (bodyWrap) {
+                updateStopButtonInBody(bodyWrap, card, waitInfo, false);
+              }
             }
-          }
-        });
+          });
+        } finally {
+          Promise.resolve().then(() => {
+            isPerformingPluginDomUpdates = false;
+          });
+        }
       } catch (e) {}
     }
 
@@ -1275,119 +1331,126 @@ window.__ModuleLoader__.load({
             if (!res.ok) return;
             const data = await res.json();
 
-            const outEl = el.querySelector('.dsh-live-terminal-output');
-            const dot = el.querySelector('.dsh-live-terminal-dot');
-            const bodyWrap = card ? card.querySelector('[class*="bodyWrap"]') : null;
+            isPerformingPluginDomUpdates = true;
+            try {
+              const outEl = el.querySelector('.dsh-live-terminal-output');
+              const dot = el.querySelector('.dsh-live-terminal-dot');
+              const bodyWrap = card ? card.querySelector('[class*="bodyWrap"]') : null;
 
-            if (data.jobId && !el.dataset.jobId) {
-              if (el.dataset.isBackground === 'true' || data.isBackground === true) {
-                el.dataset.jobId = data.jobId;
-                el.dataset.isBackground = 'true';
-                if (card) {
-                  card.dataset.jobId = data.jobId;
-                  card.dataset.isBackground = 'true';
-                }
-              }
-            }
-
-            const isBackground = el.dataset.isBackground === 'true';
-            const node = el.closest('[data-tool="pwsh"], [data-tool="bash"], [data-variant="bash"]');
-            const stateAttr = (
-              node?.getAttribute('data-state') ||
-              card?.getAttribute('data-state') ||
-              card?.querySelector?.('[data-state]')?.getAttribute('data-state') ||
-              ''
-            ).toLowerCase().trim();
-            const isStateFinished = stateAttr === 'ok' || stateAttr === 'error' || (stateAttr && stateAttr !== 'running');
-
-            // Foreground commands: remove liveBox immediately once DSH finishes and renders native terminal
-            if (!isBackground && isStateFinished) {
-              if (card) {
-                updateHeaderDot(card, false);
-                if (bodyWrap) updateStopButtonInBody(bodyWrap, card, { jobId, callId }, false);
-                const defaultCard = card.querySelector('[data-terminal]');
-                if (defaultCard) defaultCard.style.display = '';
-              }
-              activeContainers.delete(el);
-              el.remove();
-              stopPollingIfEmpty();
-              const statusKey = jobId || callId;
-              if (statusKey) knownJobStatuses.set(statusKey, false);
-              return;
-            }
-
-            if (data.found) {
-              const text = data.output || '';
-              if (text && jobId) {
-                jobOutputCache.set(jobId, text);
-              }
-
-              if (outEl) {
-                if (text && outEl.textContent !== text) {
-                  outEl.textContent = text;
-                  outEl.scrollTop = outEl.scrollHeight;
-                } else if (!text && (outEl.textContent === 'Loading output...' || outEl.textContent.startsWith('Waiting') || outEl.textContent.startsWith('Đang'))) {
-                  outEl.textContent = data.active ? '(Process is running, no output yet...)' : '(Process has completed, no output)';
+              if (data.jobId && !el.dataset.jobId) {
+                if (el.dataset.isBackground === 'true' || data.isBackground === true) {
+                  el.dataset.jobId = data.jobId;
+                  el.dataset.isBackground = 'true';
+                  if (card) {
+                    card.dataset.jobId = data.jobId;
+                    card.dataset.isBackground = 'true';
+                  }
                 }
               }
 
-              if (data.command && (!el.dataset.command || el.dataset.command.length < 5)) {
-                el.dataset.command = data.command;
-                const cmdEl = el.querySelector('.dsh-live-terminal-command');
-                if (cmdEl) cmdEl.textContent = data.command;
-              }
-              if (data.cwd) {
-                const cwdSpan = el.querySelector('.dsh-live-terminal-cwd');
-                if (cwdSpan && !cwdSpan.textContent) cwdSpan.textContent = data.cwd;
-              }
+              const isBackground = el.dataset.isBackground === 'true';
+              const node = el.closest('[data-tool="pwsh"], [data-tool="bash"], [data-variant="bash"]');
+              const stateAttr = (
+                node?.getAttribute('data-state') ||
+                card?.getAttribute('data-state') ||
+                card?.querySelector?.('[data-state]')?.getAttribute('data-state') ||
+                ''
+              ).toLowerCase().trim();
+              const isStateFinished = stateAttr === 'ok' || stateAttr === 'error' || (stateAttr && stateAttr !== 'running');
 
-              const statusKey = jobId || callId;
-              if (statusKey) knownJobStatuses.set(statusKey, data.active);
-
-              if (data.active === false) {
-                // Process / Background job finished
+              // Foreground commands: remove liveBox immediately once DSH finishes and renders native terminal
+              if (!isBackground && isStateFinished) {
                 if (card) {
                   updateHeaderDot(card, false);
                   if (bodyWrap) updateStopButtonInBody(bodyWrap, card, { jobId, callId }, false);
+                  const defaultCard = card.querySelector('[data-terminal]');
+                  if (defaultCard) defaultCard.style.display = '';
+                }
+                activeContainers.delete(el);
+                el.remove();
+                stopPollingIfEmpty();
+                const statusKey = jobId || callId;
+                if (statusKey) knownJobStatuses.set(statusKey, false);
+                return;
+              }
+
+              if (data.found) {
+                const text = data.output || '';
+                if (text && jobId) {
+                  jobOutputCache.set(jobId, text);
                 }
 
+                if (outEl) {
+                  if (text && outEl.textContent !== text) {
+                    outEl.textContent = text;
+                    outEl.scrollTop = outEl.scrollHeight;
+                  } else if (!text && (outEl.textContent === 'Loading output...' || outEl.textContent.startsWith('Waiting') || outEl.textContent.startsWith('Đang'))) {
+                    outEl.textContent = data.active ? '(Process is running, no output yet...)' : '(Process has completed, no output)';
+                  }
+                }
+
+                if (data.command && (!el.dataset.command || el.dataset.command.length < 5)) {
+                  el.dataset.command = data.command;
+                  const cmdEl = el.querySelector('.dsh-live-terminal-command');
+                  if (cmdEl) cmdEl.textContent = data.command;
+                }
+                if (data.cwd) {
+                  const cwdSpan = el.querySelector('.dsh-live-terminal-cwd');
+                  if (cwdSpan && !cwdSpan.textContent) cwdSpan.textContent = data.cwd;
+                }
+
+                const statusKey = jobId || callId;
+                if (statusKey) knownJobStatuses.set(statusKey, data.active);
+
+                if (data.active === false) {
+                  // Process / Background job finished
+                  if (card) {
+                    updateHeaderDot(card, false);
+                    if (bodyWrap) updateStopButtonInBody(bodyWrap, card, { jobId, callId }, false);
+                  }
+
+                  if (isBackground) {
+                    // For background jobs: KEEP the liveBox visible in DOM with settled dot!
+                    if (dot) dot.classList.add('settled');
+                    el.dataset.settled = 'true';
+                    activeContainers.delete(el);
+                    stopPollingIfEmpty();
+                  } else {
+                    // For foreground commands: DSH will show its native terminal
+                    const defaultCard = card?.querySelector('[data-terminal]');
+                    if (defaultCard) defaultCard.style.display = '';
+                    activeContainers.delete(el);
+                    el.remove();
+                    stopPollingIfEmpty();
+                  }
+                } else {
+                  // Still running
+                  if (dot) dot.classList.remove('settled');
+                  if (card) {
+                    updateHeaderDot(card, true);
+                    if (bodyWrap) updateStopButtonInBody(bodyWrap, card, { jobId, callId }, true);
+                  }
+                }
+              } else {
+                // Not found on server
                 if (isBackground) {
-                  // For background jobs: KEEP the liveBox visible in DOM with settled dot!
+                  if (outEl && outEl.textContent === 'Loading output...') {
+                    if (jobId && jobOutputCache.has(jobId)) {
+                      outEl.textContent = jobOutputCache.get(jobId);
+                    } else {
+                      outEl.textContent = '(Background job completed or no output recorded)';
+                    }
+                  }
                   if (dot) dot.classList.add('settled');
                   el.dataset.settled = 'true';
                   activeContainers.delete(el);
                   stopPollingIfEmpty();
-                } else {
-                  // For foreground commands: DSH will show its native terminal
-                  const defaultCard = card?.querySelector('[data-terminal]');
-                  if (defaultCard) defaultCard.style.display = '';
-                  activeContainers.delete(el);
-                  el.remove();
-                  stopPollingIfEmpty();
-                }
-              } else {
-                // Still running
-                if (dot) dot.classList.remove('settled');
-                if (card) {
-                  updateHeaderDot(card, true);
-                  if (bodyWrap) updateStopButtonInBody(bodyWrap, card, { jobId, callId }, true);
                 }
               }
-            } else {
-              // Not found on server
-              if (isBackground) {
-                if (outEl && outEl.textContent === 'Loading output...') {
-                  if (jobId && jobOutputCache.has(jobId)) {
-                    outEl.textContent = jobOutputCache.get(jobId);
-                  } else {
-                    outEl.textContent = '(Background job completed or no output recorded)';
-                  }
-                }
-                if (dot) dot.classList.add('settled');
-                el.dataset.settled = 'true';
-                activeContainers.delete(el);
-                stopPollingIfEmpty();
-              }
+            } finally {
+              Promise.resolve().then(() => {
+                isPerformingPluginDomUpdates = false;
+              });
             }
           } catch (e) {}
         });
@@ -1403,20 +1466,29 @@ window.__ModuleLoader__.load({
     }
 
     let isUpdating = false;
-    let updateScheduled = false;
+    let updateTimer = null;
+    let lastUpdateTime = 0;
+    const MIN_UPDATE_INTERVAL = 120; // Rate limit DOM rescanning to prevent freezing
 
     function scheduleUpdate() {
-      if (updateScheduled) return;
-      updateScheduled = true;
-      requestAnimationFrame(() => {
-        updateScheduled = false;
-        updateLiveBlocks();
-      });
+      if (updateTimer) return;
+      const now = Date.now();
+      const elapsed = now - lastUpdateTime;
+      const delay = elapsed >= MIN_UPDATE_INTERVAL ? 0 : (MIN_UPDATE_INTERVAL - elapsed);
+
+      updateTimer = setTimeout(() => {
+        updateTimer = null;
+        lastUpdateTime = Date.now();
+        requestAnimationFrame(() => {
+          updateLiveBlocks();
+        });
+      }, delay);
     }
 
     function updateLiveBlocks() {
       if (isUpdating) return;
       isUpdating = true;
+      isPerformingPluginDomUpdates = true;
 
       try {
         ensureStyles();
@@ -1603,6 +1675,9 @@ window.__ModuleLoader__.load({
 
         stopPollingIfEmpty();
       } finally {
+        Promise.resolve().then(() => {
+          isPerformingPluginDomUpdates = false;
+        });
         isUpdating = false;
       }
     }
@@ -1613,22 +1688,12 @@ window.__ModuleLoader__.load({
       ensureStyles();
 
       const observer = new MutationObserver((mutations) => {
+        if (isPerformingPluginDomUpdates) return;
+
         let relevant = false;
         for (const m of mutations) {
-          const target = m.target;
-          if (target && target.nodeType === 1) {
-            if (
-              target.classList?.contains('dsh-live-terminal-block') ||
-              target.classList?.contains('dsh-live-header-dot') ||
-              target.classList?.contains('dsh-live-stop-btn') ||
-              target.classList?.contains('dsh-live-view-job-btn') ||
-              target.classList?.contains('dsh-live-copy-btn') ||
-              target.classList?.contains('dsh-live-footer-row') ||
-              target.closest?.('.dsh-live-terminal-block') ||
-              target.closest?.('.dsh-live-footer-row')
-            ) {
-              continue;
-            }
+          if (isPluginMutation(m)) {
+            continue;
           }
           relevant = true;
           break;
