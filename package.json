@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-live-terminal",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Live streaming terminal output for DeepSeek Harness",
   "type": "module",
   "main": "./index.js",
