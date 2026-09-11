@@ -331,7 +331,12 @@ window.__ModuleLoader__.load({
 
     function normalizeCmd(str) {
       if (!str) return '';
-      return str.toLowerCase().replace(/\s+/g, ' ').trim();
+      return str
+        .toLowerCase()
+        .replace(/^\s*\[console\]::outputencoding[^;]+;\s*\$outputencoding[^;]+;\s*/i, '')
+        .replace(/\r\n/g, '\n')
+        .replace(/\s+/g, ' ')
+        .trim();
     }
 
     function matchesCommand(textA, textB) {
@@ -339,7 +344,14 @@ window.__ModuleLoader__.load({
       const a = normalizeCmd(textA);
       const b = normalizeCmd(textB);
       if (!a || !b) return false;
-      return a === b || a.includes(b) || b.includes(a);
+      if (a === b) return true;
+
+      const minLen = Math.min(a.length, b.length);
+      const maxLen = Math.max(a.length, b.length);
+      if (minLen > 30 && minLen / maxLen >= 0.75) {
+        return a.includes(b) || b.includes(a);
+      }
+      return false;
     }
 
     async function copyToClipboard(text) {
@@ -578,12 +590,27 @@ window.__ModuleLoader__.load({
       }
 
       if (!command) {
-        const commandEl = card.querySelector('[class*="command"]');
-        if (commandEl) {
-          command = commandEl.textContent.trim();
-        } else {
-          const summaryEl = card.querySelector('[class*="summary"]');
-          command = summaryEl ? summaryEl.textContent.trim() : '';
+        const promptLines = card.querySelectorAll('[class*="promptLine"]');
+        if (promptLines.length > 0) {
+          const lines = [];
+          promptLines.forEach((pl) => {
+            const cmdSpan = pl.querySelector('[class*="command"]');
+            if (cmdSpan && cmdSpan.textContent.trim()) {
+              lines.push(cmdSpan.textContent.trim());
+            }
+          });
+          if (lines.length > 0) {
+            command = lines.join('\n');
+          }
+        }
+        if (!command) {
+          const commandEls = card.querySelectorAll('[class*="command"]');
+          if (commandEls.length > 0) {
+            command = Array.from(commandEls).map(el => el.textContent.trim()).filter(Boolean).join('\n');
+          } else {
+            const summaryEl = card.querySelector('[class*="summary"]');
+            command = summaryEl ? summaryEl.textContent.trim() : '';
+          }
         }
       }
 
@@ -1127,17 +1154,17 @@ window.__ModuleLoader__.load({
 
             if (info.jobId) {
               matchedJob = data.jobs.find(j => j.id === info.jobId);
-            } else {
-              const cardText = card.textContent || '';
-              matchedJob = data.jobs.find(j => {
-                if (!j.command) return false;
-                return matchesCommand(cardText, j.command) || matchesCommand(info.command, j.command);
-              });
-              if (matchedJob) {
-                card.dataset.jobId = matchedJob.id;
-                card.dataset.isBackground = 'true';
-                info.jobId = matchedJob.id;
-                info.isBackground = true;
+            } else if (info.isBackground) {
+              if (info.command) {
+                matchedJob = data.jobs.find(j => {
+                  if (!j.command) return false;
+                  return matchesCommand(info.command, j.command);
+                });
+                if (matchedJob) {
+                  card.dataset.jobId = matchedJob.id;
+                  card.dataset.isBackground = 'true';
+                  info.jobId = matchedJob.id;
+                }
               }
             }
 
@@ -1253,11 +1280,13 @@ window.__ModuleLoader__.load({
             const bodyWrap = card ? card.querySelector('[class*="bodyWrap"]') : null;
 
             if (data.jobId && !el.dataset.jobId) {
-              el.dataset.jobId = data.jobId;
-              el.dataset.isBackground = 'true';
-              if (card) {
-                card.dataset.jobId = data.jobId;
-                card.dataset.isBackground = 'true';
+              if (el.dataset.isBackground === 'true' || data.isBackground === true) {
+                el.dataset.jobId = data.jobId;
+                el.dataset.isBackground = 'true';
+                if (card) {
+                  card.dataset.jobId = data.jobId;
+                  card.dataset.isBackground = 'true';
+                }
               }
             }
 

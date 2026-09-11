@@ -28,7 +28,12 @@ function cleanCommand(argv) {
 
 function normalizeCmd(str) {
   if (!str) return '';
-  return str.toLowerCase().replace(/\s+/g, ' ').trim();
+  return str
+    .toLowerCase()
+    .replace(/^\s*\[console\]::outputencoding[^;]+;\s*\$outputencoding[^;]+;\s*/i, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function matchesCommand(procOrCmd, cmdText) {
@@ -36,7 +41,14 @@ function matchesCommand(procOrCmd, cmdText) {
   const p = normalizeCmd(typeof procOrCmd === 'string' ? procOrCmd : (procOrCmd.command || procOrCmd.label || ''));
   const c = normalizeCmd(cmdText);
   if (!p || !c) return false;
-  return p === c || p.includes(c) || c.includes(p);
+  if (p === c) return true;
+
+  const minLen = Math.min(p.length, c.length);
+  const maxLen = Math.max(p.length, c.length);
+  if (minLen > 30 && minLen / maxLen >= 0.75) {
+    return p.includes(c) || c.includes(p);
+  }
+  return false;
 }
 
 function pruneCompletedProcesses() {
@@ -365,34 +377,7 @@ export function apply(ctx) {
         }
       }
 
-      // Check jobs by command if qJobId was not provided but qCommand is
-      if (!qJobId && qCommand && jobs?.store) {
-        for (const [id, job] of jobs.store.entries()) {
-          if (matchesCommand(job.label, qCommand)) {
-            const jid = String(id);
-            if (!job.__liveTerminalIntercepted) {
-              setupJobOutputInterception(jid, job);
-            }
-            const isTerminal = job.status === 'completed' || job.status === 'killed' || job.status === 'failed';
-            let fullOutput = job.__getLiveOutput ? job.__getLiveOutput() : (backgroundJobBuffers.get(jid) || '');
-            if (isTerminal && job.output && job.output.length > fullOutput.length) {
-              fullOutput = job.output;
-              backgroundJobBuffers.set(jid, fullOutput);
-            }
-
-            return res.end(JSON.stringify({
-              found: true,
-              active: !isTerminal,
-              status: job.status,
-              jobId: jid,
-              command: job.label || '',
-              output: fullOutput
-            }));
-          }
-        }
-      }
-
-      // --- B. Fallback to activeProcesses (foreground commands) ---
+      // --- B. activeProcesses (foreground commands and tracked processes) ---
       let matched = null;
 
       // 1. By jobId in activeProcesses
@@ -478,6 +463,34 @@ export function apply(ctx) {
         }
         if (activeList.length === 1) {
           matched = activeList[0];
+        }
+      }
+
+      // 7. Fallback to background jobs by command only if no active process matched
+      if (!matched && !qJobId && qCommand && jobs?.store) {
+        for (const [id, job] of jobs.store.entries()) {
+          if (matchesCommand(job.label, qCommand)) {
+            const jid = String(id);
+            if (!job.__liveTerminalIntercepted) {
+              setupJobOutputInterception(jid, job);
+            }
+            const isTerminal = job.status === 'completed' || job.status === 'killed' || job.status === 'failed';
+            let fullOutput = job.__getLiveOutput ? job.__getLiveOutput() : (backgroundJobBuffers.get(jid) || '');
+            if (isTerminal && job.output && job.output.length > fullOutput.length) {
+              fullOutput = job.output;
+              backgroundJobBuffers.set(jid, fullOutput);
+            }
+
+            return res.end(JSON.stringify({
+              found: true,
+              active: !isTerminal,
+              isBackground: true,
+              status: job.status,
+              jobId: jid,
+              command: job.label || '',
+              output: fullOutput
+            }));
+          }
         }
       }
 
