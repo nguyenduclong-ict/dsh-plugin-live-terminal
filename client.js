@@ -196,12 +196,31 @@ window.__ModuleLoader__.load({
           font-size: 0 !important;
         }
 
+        /* Align footer action buttons (Stop, View Job) on the same horizontal row as Inspect button */
+        [class*="bodyWrap"]:has(.dsh-live-footer-row) {
+          flex-direction: row !important;
+          flex-wrap: wrap !important;
+          align-items: center !important;
+        }
+
+        [class*="bodyWrap"]:has(.dsh-live-footer-row) > :not(.dsh-live-footer-row):not([class*="inspectButton"]) {
+          width: 100% !important;
+          flex: 0 0 100% !important;
+        }
+
+        [class*="bodyWrap"]:has(.dsh-live-footer-row) [class*="inspectButton"] {
+          align-self: center !important;
+          margin-top: 4px !important;
+          margin-bottom: 4px !important;
+          margin-left: 0 !important;
+        }
+
         /* Footer row containing Stop and View Job buttons */
         .dsh-live-footer-row {
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          margin: 4px 8px 4px 4px;
+          margin: 4px 6px 4px 4px;
           flex: none;
           vertical-align: middle;
         }
@@ -1106,6 +1125,8 @@ window.__ModuleLoader__.load({
           } else {
             bodyWrap.appendChild(footerRow);
           }
+        } else if (inspectBtn && inspectBtn.parentNode === bodyWrap && footerRow.nextSibling !== inspectBtn) {
+          bodyWrap.insertBefore(footerRow, inspectBtn);
         }
       }
 
