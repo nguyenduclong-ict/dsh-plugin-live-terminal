@@ -249,6 +249,65 @@ window.__ModuleLoader__.load({
           fill: currentColor;
           flex: none;
         }
+
+        /* View Job button styling */
+        .dsh-live-view-job-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          height: 20px;
+          padding: 2px 9px;
+          border-radius: 999px;
+          font-size: 11px;
+          line-height: 16px;
+          border: 1px solid rgba(59, 130, 246, 0.4);
+          background: rgba(59, 130, 246, 0.12);
+          color: #3b82f6;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          user-select: none;
+          font-family: inherit;
+          font-weight: 500;
+          letter-spacing: 0.01em;
+          margin: 0;
+        }
+
+        .dsh-live-view-job-btn:hover {
+          background: rgba(59, 130, 246, 0.22);
+          border-color: #3b82f6;
+          color: #60a5fa;
+        }
+
+        .dsh-live-view-job-btn:active {
+          opacity: 0.7;
+        }
+
+        .dsh-live-view-job-btn svg {
+          width: 10px;
+          height: 10px;
+          flex: none;
+        }
+
+        /* Target card pulse highlight when scrolled into view */
+        @keyframes dsh-live-target-glow {
+          0% {
+            outline: 2px solid rgba(59, 130, 246, 0.9);
+            box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.35), 0 0 16px rgba(59, 130, 246, 0.4);
+          }
+          50% {
+            outline: 2px solid rgba(59, 130, 246, 1);
+            box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.45), 0 0 24px rgba(59, 130, 246, 0.6);
+          }
+          100% {
+            outline: 2px solid transparent;
+            box-shadow: 0 0 0 0 rgba(59, 130, 246, 0), 0 0 0 rgba(59, 130, 246, 0);
+          }
+        }
+
+        .dsh-live-target-highlight {
+          animation: dsh-live-target-glow 2.2s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
+          border-radius: 8px !important;
+        }
       `;
       document.head.appendChild(style);
     }
@@ -350,6 +409,7 @@ window.__ModuleLoader__.load({
     // Check if a card belongs to the tool_call group with "wait" parameter (e.g. job_output or any tool with wait: true)
     function isWaitToolCard(card) {
       if (!card) return false;
+      if (isAllowedShellCard(card)) return false;
 
       const toolAttr = (card.getAttribute('data-tool') || card.querySelector('[data-tool]')?.getAttribute('data-tool') || '').toLowerCase().trim();
       if (toolAttr === 'job_output') {
@@ -358,7 +418,12 @@ window.__ModuleLoader__.load({
 
       const titleEl = card.querySelector('[class*="title"]');
       const title = titleEl ? titleEl.textContent.trim().toLowerCase() : '';
-      if (title.includes('read output from background job') || title.includes('job_output')) {
+      if (
+        title.includes('read output from background job') ||
+        title.includes('job_output') ||
+        title.includes('check job_output') ||
+        title.includes('job output')
+      ) {
         return true;
       }
 
@@ -376,6 +441,9 @@ window.__ModuleLoader__.load({
 
       // Check card text
       const cardText = card.textContent || '';
+      if (cardText.includes('job_output')) {
+        return true;
+      }
       if (/"wait"\s*:\s*true/i.test(cardText) && (cardText.includes('job_id') || cardText.includes('jobId') || toolAttr.includes('job') || cardText.includes('background job'))) {
         return true;
       }
@@ -408,10 +476,10 @@ window.__ModuleLoader__.load({
         if (label === 'IN' || label === '输入') {
           try {
             const parsed = JSON.parse(text);
-            if (parsed.job_id) jobId = parsed.job_id;
-            if (parsed.jobId) jobId = parsed.jobId;
+            if (parsed.job_id !== undefined && parsed.job_id !== null) jobId = String(parsed.job_id);
+            if (parsed.jobId !== undefined && parsed.jobId !== null) jobId = String(parsed.jobId);
           } catch (e) {
-            const m = text.match(/"job_id"\s*:\s*"([^"]+)"/i) || text.match(/"jobId"\s*:\s*"([^"]+)"/i);
+            const m = text.match(/"job_id"\s*:\s*["']?([^"',}\s]+)/i) || text.match(/"jobId"\s*:\s*["']?([^"',}\s]+)/i);
             if (m) jobId = m[1];
           }
         }
@@ -426,7 +494,9 @@ window.__ModuleLoader__.load({
 
       if (!jobId) {
         const cardText = card.textContent || '';
-        const m = cardText.match(/"job_id"\s*:\s*"([^"]+)"/i) || cardText.match(/background job\s+([a-zA-Z0-9_-]+)/i);
+        const m = cardText.match(/"job_id"\s*:\s*["']?([^"',}\s]+)/i) ||
+                  cardText.match(/"jobId"\s*:\s*["']?([^"',}\s]+)/i) ||
+                  cardText.match(/background job\s+([a-zA-Z0-9_-]+)/i);
         if (m) jobId = m[1];
       }
 
@@ -625,14 +695,219 @@ window.__ModuleLoader__.load({
       }
     }
 
-    // Stop button positioned next to Inspect button in bodyWrap footer
+    // Find the original shell card (pwsh/bash) that spawned the background job
+    function findOriginalJobCard(jobId, currentCard) {
+      if (!jobId) return null;
+
+      const strJobId = String(jobId).trim();
+      if (!strJobId) return null;
+
+      const candidates = document.querySelectorAll(
+        '[data-tool], [data-variant], [data-chat-call-id], [data-chat-anchor-key], [class*="callRow"], [class*="card"]'
+      );
+
+      const seen = new Set();
+      const matched = [];
+
+      for (const node of candidates) {
+        const card = node.closest('[data-chat-call-id]') ||
+                     node.closest('[data-chat-anchor-key]') ||
+                     node.closest('[class*="callRow"]') ||
+                     node.closest('[class*="card"]') ||
+                     node;
+
+        if (!card || seen.has(card)) continue;
+        seen.add(card);
+
+        if (card === currentCard) continue;
+        if (isWaitToolCard(card)) continue;
+
+        // A. Direct dataset match
+        if (card.dataset.jobId === strJobId) {
+          return card;
+        }
+
+        // B. Check extractCommandInfo
+        const info = extractCommandInfo(card);
+        if (info.jobId === strJobId) {
+          card.dataset.jobId = strJobId;
+          return card;
+        }
+
+        // C. Check content match
+        const text = card.textContent || '';
+        if (text.includes(strJobId)) {
+          if (
+            text.toLowerCase().includes('started background job') ||
+            text.toLowerCase().includes('background job') ||
+            isAllowedShellCard(card)
+          ) {
+            matched.push(card);
+          }
+        }
+      }
+
+      if (matched.length > 0) {
+        return matched[0];
+      }
+
+      // Fallback: search any element with data-job-id attribute
+      try {
+        const selector = `[data-job-id="${CSS.escape ? CSS.escape(strJobId) : strJobId}"]`;
+        const fallback = document.querySelectorAll(selector);
+        for (const el of fallback) {
+          const card = el.closest('[data-chat-call-id]') ||
+                       el.closest('[class*="callRow"]') ||
+                       el.closest('[class*="card"]') ||
+                       el;
+          if (card !== currentCard && !isWaitToolCard(card)) {
+            return card;
+          }
+        }
+      } catch (e) {}
+
+      return null;
+    }
+
+    function isCardExpanded(card) {
+      if (!card) return false;
+      if (card.querySelector('[class*="bodyWrap"]')) return true;
+      if (card.getAttribute('aria-expanded') === 'true') return true;
+      if (card.querySelector('[aria-expanded="true"]')) return true;
+      if (card.getAttribute('data-open') === 'true') return true;
+      if (card.tagName === 'DETAILS' && card.open) return true;
+      return false;
+    }
+
+    function openCard(card) {
+      if (!card || isCardExpanded(card)) return;
+
+      if (card.tagName === 'DETAILS') {
+        card.open = true;
+        card.dispatchEvent(new Event('toggle', { bubbles: true }));
+        return;
+      }
+      const details = card.querySelector('details');
+      if (details) {
+        details.open = true;
+        details.dispatchEvent(new Event('toggle', { bubbles: true }));
+        return;
+      }
+
+      const ariaFalse = card.querySelector('[aria-expanded="false"]');
+      if (ariaFalse) {
+        ariaFalse.click();
+        return;
+      }
+
+      const disclosureRow = card.querySelector('[data-disclosure-row="true"]');
+      if (disclosureRow) {
+        disclosureRow.click();
+        return;
+      }
+
+      const header = card.querySelector('[class*="headerRow"]') ||
+                     card.querySelector('[class*="header"]') ||
+                     card.querySelector('[class*="row"]');
+      if (header) {
+        header.click();
+        return;
+      }
+
+      card.click();
+    }
+
+    function scrollToCard(card) {
+      if (!card) return;
+
+      card.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+        inline: 'nearest'
+      });
+
+      setTimeout(() => {
+        if (document.body.contains(card)) {
+          card.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+            inline: 'nearest'
+          });
+        }
+      }, 120);
+
+      setTimeout(() => {
+        if (document.body.contains(card)) {
+          card.scrollIntoView({
+            behavior: 'smooth',
+            block: 'center',
+            inline: 'nearest'
+          });
+        }
+      }, 300);
+    }
+
+    function highlightCard(card) {
+      if (!card) return;
+
+      card.classList.remove('dsh-live-target-highlight');
+      void card.offsetWidth;
+      card.classList.add('dsh-live-target-highlight');
+
+      setTimeout(() => {
+        if (card) card.classList.remove('dsh-live-target-highlight');
+      }, 2200);
+    }
+
+    function navigateToOriginalJob(jobId, currentCard, btn) {
+      if (!jobId) {
+        if (btn) {
+          const span = btn.querySelector('span');
+          const origText = span?.textContent || 'View Job';
+          if (span) span.textContent = 'No Job ID';
+          setTimeout(() => {
+            if (btn && btn.querySelector('span')) {
+              btn.querySelector('span').textContent = origText;
+            }
+          }, 1800);
+        }
+        return;
+      }
+
+      const targetCard = findOriginalJobCard(jobId, currentCard);
+      if (!targetCard) {
+        if (btn) {
+          const span = btn.querySelector('span');
+          const origText = span?.textContent || 'View Job';
+          if (span) span.textContent = 'Job not found';
+          setTimeout(() => {
+            if (btn && btn.querySelector('span')) {
+              btn.querySelector('span').textContent = origText;
+            }
+          }, 1800);
+        }
+        return;
+      }
+
+      openCard(targetCard);
+      scrollToCard(targetCard);
+      highlightCard(targetCard);
+    }
+
+    // Action buttons positioned next to Inspect button in bodyWrap footer
     function updateStopButtonInBody(bodyWrap, card, info, isRunning) {
       if (!bodyWrap) return;
+
+      const isWait = isWaitToolCard(card);
+      const jobId = info?.jobId || card?.dataset?.jobId || (isWait ? extractWaitInfo(card).jobId : null);
+
+      const showStop = !!isRunning;
+      const showViewJob = isWait && !!jobId;
 
       let footerRow = bodyWrap.querySelector('.dsh-live-footer-row');
       const inspectBtn = bodyWrap.querySelector('[class*="inspectButton"]');
 
-      if (isRunning) {
+      if (showStop || showViewJob) {
         if (!footerRow) {
           footerRow = document.createElement('div');
           footerRow.className = 'dsh-live-footer-row';
@@ -644,32 +919,71 @@ window.__ModuleLoader__.load({
             bodyWrap.appendChild(footerRow);
           }
         }
+      }
 
-        let stopBtn = footerRow.querySelector('.dsh-live-stop-btn');
-        if (!stopBtn) {
-          stopBtn = document.createElement('button');
-          stopBtn.type = 'button';
-          stopBtn.className = 'dsh-live-stop-btn';
-          stopBtn.title = 'Stop command';
-          stopBtn.innerHTML = `
-            <svg viewBox="0 0 16 16" fill="currentColor">
-              <rect x="3" y="3" width="10" height="10" rx="2"></rect>
-            </svg>
-            <span>Stop</span>
-          `;
+      if (footerRow) {
+        // 1. View Job button (only for job_output / wait tool cards)
+        let viewJobBtn = footerRow.querySelector('.dsh-live-view-job-btn');
+        if (showViewJob) {
+          if (!viewJobBtn) {
+            viewJobBtn = document.createElement('button');
+            viewJobBtn.type = 'button';
+            viewJobBtn.className = 'dsh-live-view-job-btn';
+            viewJobBtn.title = 'Scroll to original job';
+            viewJobBtn.innerHTML = `
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 11l6-6M5 5h6v6"></path>
+              </svg>
+              <span>View Job</span>
+            `;
 
-          stopBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            stopJob(info.jobId, info.callId, stopBtn, card);
-          });
+            viewJobBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              const curJobId = info?.jobId || card?.dataset?.jobId || extractWaitInfo(card).jobId;
+              navigateToOriginalJob(curJobId, card, viewJobBtn);
+            });
 
-          footerRow.appendChild(stopBtn);
+            const stopBtn = footerRow.querySelector('.dsh-live-stop-btn');
+            if (stopBtn) {
+              footerRow.insertBefore(viewJobBtn, stopBtn);
+            } else {
+              footerRow.appendChild(viewJobBtn);
+            }
+          }
+        } else if (viewJobBtn) {
+          viewJobBtn.remove();
         }
-      } else {
-        if (footerRow) {
-          const stopBtn = footerRow.querySelector('.dsh-live-stop-btn');
-          if (stopBtn) stopBtn.remove();
+
+        // 2. Stop button
+        let stopBtn = footerRow.querySelector('.dsh-live-stop-btn');
+        if (showStop) {
+          if (!stopBtn) {
+            stopBtn = document.createElement('button');
+            stopBtn.type = 'button';
+            stopBtn.className = 'dsh-live-stop-btn';
+            stopBtn.title = 'Stop command';
+            stopBtn.innerHTML = `
+              <svg viewBox="0 0 16 16" fill="currentColor">
+                <rect x="3" y="3" width="10" height="10" rx="2"></rect>
+              </svg>
+              <span>Stop</span>
+            `;
+
+            stopBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              stopJob(info?.jobId, info?.callId, stopBtn, card);
+            });
+
+            footerRow.appendChild(stopBtn);
+          }
+        } else if (stopBtn) {
+          stopBtn.remove();
+        }
+
+        if (!footerRow.hasChildNodes()) {
+          footerRow.remove();
         }
       }
     }
@@ -1278,6 +1592,7 @@ window.__ModuleLoader__.load({
               target.classList?.contains('dsh-live-terminal-block') ||
               target.classList?.contains('dsh-live-header-dot') ||
               target.classList?.contains('dsh-live-stop-btn') ||
+              target.classList?.contains('dsh-live-view-job-btn') ||
               target.classList?.contains('dsh-live-copy-btn') ||
               target.classList?.contains('dsh-live-footer-row') ||
               target.closest?.('.dsh-live-terminal-block') ||
