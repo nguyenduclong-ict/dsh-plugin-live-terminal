@@ -313,6 +313,7 @@ window.__ModuleLoader__.load({
     let syncJobsTimer = null;
     const activeContainers = new Set();
     const knownJobStatuses = new Map(); // jobId or callId -> boolean (active)
+    const knownJobCommands = new Map(); // jobId -> command string
     const jobOutputCache = new Map();   // jobId -> full output text
 
     function escapeHtml(str) {
@@ -730,79 +731,173 @@ window.__ModuleLoader__.load({
     }
 
     // Find the original shell card (pwsh/bash) that spawned the background job
-    function findOriginalJobCard(jobId, currentCard) {
+    async function findOriginalJobCard(jobId, currentCard) {
       if (!jobId) return null;
 
       const strJobId = String(jobId).trim();
       if (!strJobId) return null;
 
-      const candidates = document.querySelectorAll(
+      // 1. Direct dataset or attribute fast lookup (O(1))
+      try {
+        const escaped = CSS.escape ? CSS.escape(strJobId) : strJobId;
+        const directNodes = document.querySelectorAll(`[data-job-id="${escaped}"]`);
+        for (const el of directNodes) {
+          const card = el.closest('[data-chat-call-id]') ||
+                       el.closest('[data-chat-anchor-key]') ||
+                       el.closest('[class*="callRow"]') ||
+                       el.closest('[class*="card"]') ||
+                       el;
+          if (card && card !== currentCard && !isWaitToolCard(card) && isAllowedShellCard(card)) {
+            return card;
+          }
+        }
+      } catch (e) {}
+
+      // Collect all candidate cards on screen
+      const rawNodes = document.querySelectorAll(
         '[data-tool], [data-variant], [data-chat-call-id], [data-chat-anchor-key], [class*="callRow"], [class*="card"]'
       );
 
+      const allCards = [];
       const seen = new Set();
-      const matched = [];
-
-      for (const node of candidates) {
+      for (const node of rawNodes) {
         const card = node.closest('[data-chat-call-id]') ||
                      node.closest('[data-chat-anchor-key]') ||
                      node.closest('[class*="callRow"]') ||
                      node.closest('[class*="card"]') ||
                      node;
-
         if (!card || seen.has(card)) continue;
         seen.add(card);
+        allCards.push(card);
+      }
 
-        if (card === currentCard) continue;
-        if (isWaitToolCard(card)) continue;
+      // 2. Scan cards for existing jobId match in dataset or lightweight DOM text
+      for (const card of allCards) {
+        if (card === currentCard || isWaitToolCard(card) || !isAllowedShellCard(card)) continue;
 
-        // A. Direct dataset match
         if (card.dataset.jobId === strJobId) {
           return card;
         }
 
-        // B. Check extractCommandInfo
         const info = extractCommandInfo(card);
         if (info.jobId === strJobId) {
           card.dataset.jobId = strJobId;
+          card.dataset.isBackground = 'true';
           return card;
         }
 
-        // C. Check ioSection text match (avoid large card.textContent)
         const textElements = card.querySelectorAll('[class*="ioText"], [class*="title"], [class*="summary"], [class*="promptLine"]');
         for (const el of textElements) {
           const text = el.textContent || '';
           if (text.includes(strJobId)) {
             if (
               text.toLowerCase().includes('started background job') ||
-              text.toLowerCase().includes('background job') ||
-              isAllowedShellCard(card)
+              text.toLowerCase().includes('background job')
             ) {
-              matched.push(card);
-              break;
+              card.dataset.jobId = strJobId;
+              card.dataset.isBackground = 'true';
+              return card;
             }
           }
         }
       }
 
-      if (matched.length > 0) {
-        return matched[0];
+      // 3. Fallback for collapsed/unopened cards: match by job command and DOM order
+      let jobCmd = knownJobCommands.get(strJobId);
+      if (!jobCmd) {
+        try {
+          const res = await fetch('/api/live-terminal/output?jobId=' + encodeURIComponent(strJobId));
+          if (res.ok) {
+            const data = await res.json();
+            if (data.command) {
+              jobCmd = data.command;
+              knownJobCommands.set(strJobId, jobCmd);
+            }
+          }
+        } catch (e) {}
+      }
+      if (!jobCmd) {
+        try {
+          const res = await fetch('/api/live-terminal/jobs');
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data.jobs)) {
+              for (const j of data.jobs) {
+                if (j.command) knownJobCommands.set(j.id, j.command);
+                if (j.id === strJobId && j.command) jobCmd = j.command;
+              }
+            }
+          }
+        } catch (e) {}
       }
 
-      // Fallback: search any element with data-job-id attribute
-      try {
-        const selector = `[data-job-id="${CSS.escape ? CSS.escape(strJobId) : strJobId}"]`;
-        const fallback = document.querySelectorAll(selector);
-        for (const el of fallback) {
-          const card = el.closest('[data-chat-call-id]') ||
-                       el.closest('[class*="callRow"]') ||
-                       el.closest('[class*="card"]') ||
-                       el;
-          if (card !== currentCard && !isWaitToolCard(card)) {
-            return card;
-          }
+      // Filter shell cards that appear BEFORE currentCard in DOM
+      const precedingShellCards = allCards
+        .filter(c => c !== currentCard && isAllowedShellCard(c) && !isWaitToolCard(c))
+        .filter(c => {
+          if (!currentCard) return true;
+          const pos = currentCard.compareDocumentPosition(c);
+          return (pos & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
+        })
+        .reverse(); // Closest preceding card tested first
+
+      if (jobCmd) {
+        const cmdMatchedCards = precedingShellCards.filter(c => {
+          const info = extractCommandInfo(c);
+          return matchesCommand(info.command, jobCmd);
+        });
+
+        if (cmdMatchedCards.length === 1) {
+          const target = cmdMatchedCards[0];
+          target.dataset.jobId = strJobId;
+          target.dataset.isBackground = 'true';
+          return target;
         }
-      } catch (e) {}
+
+        if (cmdMatchedCards.length > 1) {
+          for (const cand of cmdMatchedCards) {
+            const wasExpanded = isCardExpanded(cand);
+            if (!wasExpanded) {
+              openCard(cand);
+              await new Promise(r => setTimeout(r, 40));
+            }
+            const info = extractCommandInfo(cand);
+            const candText = cand.textContent || '';
+            if (info.jobId === strJobId || candText.includes(strJobId)) {
+              cand.dataset.jobId = strJobId;
+              cand.dataset.isBackground = 'true';
+              return cand;
+            }
+            if (!wasExpanded) {
+              closeCard(cand);
+            }
+          }
+          // Default to the closest preceding card matching command
+          const target = cmdMatchedCards[0];
+          target.dataset.jobId = strJobId;
+          target.dataset.isBackground = 'true';
+          return target;
+        }
+      }
+
+      // 4. Last resort: inspect up to 5 closest preceding shell cards directly
+      for (const cand of precedingShellCards.slice(0, 5)) {
+        const wasExpanded = isCardExpanded(cand);
+        if (!wasExpanded) {
+          openCard(cand);
+          await new Promise(r => setTimeout(r, 40));
+        }
+        const info = extractCommandInfo(cand);
+        const candText = cand.textContent || '';
+        if (info.jobId === strJobId || candText.includes(strJobId)) {
+          cand.dataset.jobId = strJobId;
+          cand.dataset.isBackground = 'true';
+          return cand;
+        }
+        if (!wasExpanded) {
+          closeCard(cand);
+        }
+      }
 
       return null;
     }
@@ -855,6 +950,41 @@ window.__ModuleLoader__.load({
       card.click();
     }
 
+    function closeCard(card) {
+      if (!card || !isCardExpanded(card)) return;
+
+      if (card.tagName === 'DETAILS') {
+        card.open = false;
+        card.dispatchEvent(new Event('toggle', { bubbles: true }));
+        return;
+      }
+      const details = card.querySelector('details');
+      if (details) {
+        details.open = false;
+        details.dispatchEvent(new Event('toggle', { bubbles: true }));
+        return;
+      }
+
+      const ariaTrue = card.querySelector('[aria-expanded="true"]');
+      if (ariaTrue) {
+        ariaTrue.click();
+        return;
+      }
+
+      const disclosureRow = card.querySelector('[data-disclosure-row="true"]');
+      if (disclosureRow) {
+        disclosureRow.click();
+        return;
+      }
+
+      const header = card.querySelector('[class*="headerRow"]') ||
+                     card.querySelector('[class*="header"]') ||
+                     card.querySelector('[class*="row"]');
+      if (header) {
+        header.click();
+      }
+    }
+
     function scrollToCard(card) {
       if (!card) return;
 
@@ -897,7 +1027,7 @@ window.__ModuleLoader__.load({
       }, 2200);
     }
 
-    function navigateToOriginalJob(jobId, currentCard, btn) {
+    async function navigateToOriginalJob(jobId, currentCard, btn) {
       if (!jobId) {
         if (btn) {
           const span = btn.querySelector('span');
@@ -912,12 +1042,29 @@ window.__ModuleLoader__.load({
         return;
       }
 
-      const targetCard = findOriginalJobCard(jobId, currentCard);
+      const span = btn?.querySelector('span');
+      const origText = span?.textContent || 'View Job';
+
+      let isLocating = false;
+      const timeoutId = setTimeout(() => {
+        if (span) {
+          isLocating = true;
+          span.textContent = 'Locating...';
+        }
+      }, 120);
+
+      let targetCard = null;
+      try {
+        targetCard = await findOriginalJobCard(jobId, currentCard);
+      } catch (err) {
+        console.error('[dsh-plugin-live-terminal] findOriginalJobCard error:', err);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
       if (!targetCard) {
-        if (btn) {
-          const span = btn.querySelector('span');
-          const origText = span?.textContent || 'View Job';
-          if (span) span.textContent = 'Job not found';
+        if (btn && span) {
+          span.textContent = 'Job not found';
           setTimeout(() => {
             if (btn && btn.querySelector('span')) {
               btn.querySelector('span').textContent = origText;
@@ -925,6 +1072,10 @@ window.__ModuleLoader__.load({
           }, 1800);
         }
         return;
+      }
+
+      if (isLocating && span) {
+        span.textContent = origText;
       }
 
       openCard(targetCard);
@@ -1180,6 +1331,9 @@ window.__ModuleLoader__.load({
 
         for (const j of data.jobs) {
           knownJobStatuses.set(j.id, j.active);
+          if (j.command) {
+            knownJobCommands.set(j.id, j.command);
+          }
         }
 
         const candidates = document.querySelectorAll(
@@ -1215,6 +1369,22 @@ window.__ModuleLoader__.load({
                     card.dataset.jobId = matchedJob.id;
                     card.dataset.isBackground = 'true';
                     info.jobId = matchedJob.id;
+                  }
+                }
+              } else if (info.command) {
+                const stateAttr = (
+                  card.getAttribute('data-state') ||
+                  card.querySelector('[data-state]')?.getAttribute('data-state') ||
+                  ''
+                ).toLowerCase().trim();
+                const isRunning = stateAttr === 'running';
+                if (isRunning) {
+                  matchedJob = data.jobs.find(j => j.active && j.command && matchesCommand(info.command, j.command));
+                  if (matchedJob) {
+                    card.dataset.jobId = matchedJob.id;
+                    card.dataset.isBackground = 'true';
+                    info.jobId = matchedJob.id;
+                    info.isBackground = true;
                   }
                 }
               }
