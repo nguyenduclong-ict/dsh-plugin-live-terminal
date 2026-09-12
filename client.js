@@ -6,6 +6,21 @@ window.__ModuleLoader__.load({
 
     console.log('[dsh-plugin-live-terminal] client factory loaded!');
 
+    // The web shell's static module registry always exposes `react` and
+    // `@deepseek-ai/dsh-client-ui-primitives` (see the boot bundle's
+    // staticModules map). Guarded so a shell without them still gets every
+    // non-modal feature of this plugin instead of failing to load at all.
+    let React = null;
+    let Primitives = null;
+    try {
+      React = require('react');
+      Primitives = require('@deepseek-ai/dsh-client-ui-primitives');
+    } catch (e) {
+      console.warn('[dsh-plugin-live-terminal] output modal unavailable:', e);
+    }
+    const modalSupported = !!(React && typeof Primitives?.Modal === 'function');
+    const h = React ? React.createElement : null;
+
     const STYLE_ID = 'dsh-live-terminal-style';
     function ensureStyles() {
       if (document.getElementById(STYLE_ID)) return;
@@ -376,6 +391,170 @@ window.__ModuleLoader__.load({
           animation: dsh-live-target-glow 2.2s cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
           border-radius: 8px !important;
         }
+
+        /* Output button on wait (job_output) cards — opens the shared modal */
+        .dsh-live-output-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          height: 20px;
+          padding: 2px 9px;
+          border-radius: 999px;
+          font-size: 11px;
+          line-height: 16px;
+          border: 1px solid rgba(16, 185, 129, 0.4);
+          background: rgba(16, 185, 129, 0.12);
+          color: #10b981;
+          cursor: pointer;
+          transition: all 0.15s ease;
+          user-select: none;
+          font-family: inherit;
+          font-weight: 500;
+          letter-spacing: 0.01em;
+          margin: 0;
+        }
+
+        .dsh-live-output-btn:hover {
+          background: rgba(16, 185, 129, 0.22);
+          border-color: #10b981;
+          color: #34d399;
+        }
+
+        .dsh-live-output-btn:active {
+          opacity: 0.7;
+        }
+
+        .dsh-live-output-btn svg {
+          width: 10px;
+          height: 10px;
+          flex: none;
+        }
+
+        /* Native background-job list rows become a real affordance once the
+           plugin can open their output. Pure structural CSS on purpose: React
+           re-writes these rows' className on every duration tick, so a class
+           added from here would not survive a second. */
+        li[class*="_row"]:has([class*="_duration"]) {
+          cursor: pointer;
+        }
+
+        li[class*="_row"]:has([class*="_duration"]):hover {
+          background: var(--dsw-alias-fill-l2) !important;
+        }
+
+        /* Output modal (rendered by the DSH Modal primitive) */
+        .dsh-live-modal {
+          width: min(860px, calc(100vw - 64px)) !important;
+          max-width: min(860px, calc(100vw - 64px)) !important;
+        }
+
+        .dsh-live-modal-body {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          min-width: 0;
+        }
+
+        .dsh-live-modal-meta {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          color: var(--dsw-alias-label-tertiary);
+          font-size: 12px;
+          line-height: 18px;
+        }
+
+        .dsh-live-modal-status {
+          flex: none;
+          padding: 0 6px;
+          border-radius: 5px;
+          background: var(--dsw-alias-fill-l2);
+          color: var(--dsw-alias-label-secondary);
+          font-size: 11px;
+          line-height: 18px;
+        }
+
+        .dsh-live-modal-command {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: pre;
+          font-family: var(--dsw-font-markdown-code-block, monospace);
+          font-size: 12px;
+          color: var(--dsw-alias-label-secondary);
+        }
+
+        .dsh-live-modal-output {
+          box-sizing: border-box;
+          width: 100%;
+          /* The primitive centers a fixed layer with no scroller, so the pane
+             has to keep the whole dialog inside the viewport on its own. */
+          min-height: 30vh;
+          max-height: min(58vh, calc(100vh - 250px));
+          margin: 0;
+          padding: 12px 14px;
+          overflow: auto;
+          white-space: pre-wrap;
+          word-break: break-word;
+          border: 1px solid var(--dsw-alias-border-l1);
+          border-radius: 10px;
+          background: var(--dsw-alias-markdown-code-block);
+          color: var(--dsw-alias-label-secondary);
+          font-family: var(--dsw-font-markdown-code-block, monospace);
+          font-size: 12px;
+          line-height: 20px;
+        }
+
+        .dsh-live-modal-footer {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 8px;
+          width: 100%;
+        }
+
+        .dsh-live-modal-hint {
+          margin-right: auto;
+          color: var(--dsw-alias-label-tertiary);
+          font-size: 12px;
+        }
+
+        .dsh-live-modal-action {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          height: 28px;
+          padding: 0 12px;
+          border-radius: 999px;
+          border: 1px solid var(--dsw-alias-border-l1);
+          background: transparent;
+          color: var(--dsw-alias-label-secondary);
+          font: inherit;
+          font-size: 12px;
+          cursor: pointer;
+        }
+
+        .dsh-live-modal-action:hover {
+          color: var(--dsw-alias-label-primary);
+          border-color: var(--dsw-alias-border-l2, var(--dsw-alias-border-l1));
+        }
+
+        .dsh-live-modal-action:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .dsh-live-modal-action-danger {
+          border-color: rgba(239, 68, 68, 0.4);
+          background: rgba(239, 68, 68, 0.12);
+          color: #ef4444;
+        }
+
+        .dsh-live-modal-action-danger:hover {
+          background: rgba(239, 68, 68, 0.22);
+          border-color: #ef4444;
+          color: #f87171;
+        }
       `;
       document.head.appendChild(style);
     }
@@ -387,6 +566,19 @@ window.__ModuleLoader__.load({
     const knownJobStatuses = new Map(); // jobId or callId -> boolean (active)
     const knownJobCommands = new Map(); // jobId -> command string
     const jobOutputCache = new Map();   // jobId -> full output text
+
+    // Waits the user already stopped, keyed by tool call id (falling back to the
+    // awaited job id). Only used to keep the Stop button from blinking back while
+    // DSH re-renders the wait card with its final state.
+    const stoppedWaits = new Set();
+
+    // Shared markup so a failed stop request can restore the button verbatim.
+    const STOP_BTN_HTML = `
+      <svg viewBox="0 0 16 16" fill="currentColor">
+        <rect x="3" y="3" width="10" height="10" rx="2"></rect>
+      </svg>
+      <span>Stop</span>
+    `;
 
     function escapeHtml(str) {
       if (!str) return '';
@@ -709,7 +901,18 @@ window.__ModuleLoader__.load({
       };
     }
 
-    async function stopJob(jobId, callId, btn, card) {
+    /**
+     * Stop something behind one card.
+     *
+     * `options.waitOnly` (wait tool cards: job_output / any tool with wait: true)
+     * ends ONLY the pending tool call and leaves the background job running:
+     * the request carries `mode=wait`, and the job card on screen is untouched.
+     * Without it the behaviour is unchanged — kill the job or the process.
+     */
+    async function stopJob(jobId, callId, btn, card, options) {
+      const waitOnly = options?.waitOnly === true;
+      const waitKey = waitOnly ? (callId || jobId) : null;
+
       if (btn) {
         btn.disabled = true;
         btn.style.opacity = '0.5';
@@ -721,19 +924,46 @@ window.__ModuleLoader__.load({
         `;
       }
 
+      // Leave a settled acknowledgement on the button, then drop it.
+      const settleStopButton = (label) => {
+        if (!btn) return;
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.innerHTML = STOP_BTN_HTML;
+        const span = btn.querySelector('span');
+        if (span && label) span.textContent = label;
+        setTimeout(() => {
+          if (btn && document.body.contains(btn)) btn.remove();
+        }, 1500);
+      };
+
+      // Put the button back in its clickable state (request failed / nothing stopped).
+      const resetStopButton = () => {
+        if (!btn) return;
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.innerHTML = STOP_BTN_HTML;
+      };
+
       try {
         const params = new URLSearchParams();
+        if (waitOnly) params.append('mode', 'wait');
         if (jobId) params.append('jobId', jobId);
         if (callId) params.append('id', callId);
 
         const res = await fetch('/api/live-terminal/stop?' + params.toString(), { method: 'POST' });
-        if (res.ok) {
-          const key = jobId || callId;
-          if (key) knownJobStatuses.set(key, false);
+        if (!res.ok) {
+          resetStopButton();
+          return;
+        }
+
+        const data = await res.json().catch(() => null);
+
+        // --- Wait-only: the tool call ends, the background job keeps running ---
+        if (waitOnly) {
+          const stoppedWait = !data || data.stoppedWait !== false;
 
           updateHeaderDot(card, false);
-
-          if (btn) btn.remove();
 
           const liveBox = card.querySelector('.dsh-live-terminal-block');
           if (liveBox) {
@@ -741,10 +971,11 @@ window.__ModuleLoader__.load({
             if (dot) dot.classList.add('settled');
 
             const outEl = liveBox.querySelector('.dsh-live-terminal-output');
-            if (outEl && !outEl.textContent.includes('[Process stopped by user]')) {
-              outEl.textContent += (outEl.textContent ? '\n' : '') + '[Process stopped by user]\n';
+            if (outEl && !outEl.textContent.includes('[Wait stopped by user]')) {
+              outEl.textContent += (outEl.textContent ? '\n' : '') + (stoppedWait
+                ? `[Wait stopped by user — job ${jobId || ''} is still running]\n`
+                : '[No pending wait found on the server]\n');
               outEl.scrollTop = outEl.scrollHeight;
-              if (jobId) jobOutputCache.set(jobId, outEl.textContent);
             }
 
             liveBox.dataset.settled = 'true';
@@ -752,28 +983,50 @@ window.__ModuleLoader__.load({
             stopPollingIfEmpty();
           }
 
-          // If this was a wait block, also update any matching background pwsh cards on screen
-          if (jobId) {
-            document.querySelectorAll(`[data-job-id="${jobId}"]`).forEach((otherCard) => {
-              updateHeaderDot(otherCard, false);
-              const otherBox = otherCard.querySelector('.dsh-live-terminal-block');
-              if (otherBox) {
-                const dot = otherBox.querySelector('.dsh-live-terminal-dot');
-                if (dot) dot.classList.add('settled');
-                otherBox.dataset.settled = 'true';
-                activeContainers.delete(otherBox);
-              }
-              const otherWrap = otherCard.querySelector('[class*="bodyWrap"]');
-              if (otherWrap) updateStopButtonInBody(otherWrap, otherCard, { jobId }, false);
-            });
+          if (stoppedWait) {
+            if (waitKey) stoppedWaits.add(waitKey);
+            settleStopButton('Wait stopped');
+          } else {
+            // Nothing was pending (plugin reloaded, or DSH already ended the
+            // call): keep Stop clickable instead of pretending it worked.
+            resetStopButton();
           }
+
+          // Deliberately no update to the awaited job's card or to the job status
+          // cache: nothing about that job changed.
+          return;
         }
+
+        // --- Kill path: background job or foreground process ---
+        const key = jobId || callId;
+        if (key) knownJobStatuses.set(key, false);
+
+        updateHeaderDot(card, false);
+
+        if (btn) btn.remove();
+
+        const liveBox = card.querySelector('.dsh-live-terminal-block');
+        if (liveBox) {
+          const dot = liveBox.querySelector('.dsh-live-terminal-dot');
+          if (dot) dot.classList.add('settled');
+
+          const outEl = liveBox.querySelector('.dsh-live-terminal-output');
+          if (outEl && !outEl.textContent.includes('[Process stopped by user]')) {
+            outEl.textContent += (outEl.textContent ? '\n' : '') + '[Process stopped by user]\n';
+            outEl.scrollTop = outEl.scrollHeight;
+            if (jobId) jobOutputCache.set(jobId, outEl.textContent);
+          }
+
+          liveBox.dataset.settled = 'true';
+          activeContainers.delete(liveBox);
+          stopPollingIfEmpty();
+        }
+
+        // Every card showing this job settles with it (marker left to the caller)
+        settleJobCards(jobId, true);
       } catch (e) {
         console.error('[dsh-plugin-live-terminal] Stop job failed:', e);
-        if (btn) {
-          btn.disabled = false;
-          btn.style.opacity = '1';
-        }
+        resetStopButton();
       }
     }
 
@@ -1162,13 +1415,19 @@ window.__ModuleLoader__.load({
       const isWait = isWaitToolCard(card);
       const jobId = info?.jobId || card?.dataset?.jobId || (isWait ? extractWaitInfo(card).jobId : null);
 
-      const showStop = !!isRunning;
-      const showViewJob = isWait && !!jobId;
+      // A wait card whose wait the user already stopped keeps its other actions.
+      const waitKey = isWait ? (info?.callId || jobId) : null;
+      const showStop = !!isRunning && !(waitKey && stoppedWaits.has(waitKey));
+      // Wait cards open the job's output in the shared modal. Only when the shell
+      // exposes no React/primitives do we fall back to the older scroll-to-card
+      // action, which answered "Job not found" whenever the card was gone.
+      const showOutput = isWait && !!jobId && modalSupported;
+      const showViewJob = isWait && !!jobId && !modalSupported;
 
       let footerRow = bodyWrap.querySelector('.dsh-live-footer-row');
       const inspectBtn = bodyWrap.querySelector('[class*="inspectButton"]');
 
-      if (showStop || showViewJob) {
+      if (showStop || showOutput || showViewJob) {
         if (!footerRow) {
           footerRow = document.createElement('div');
           footerRow.className = 'dsh-live-footer-row';
@@ -1184,7 +1443,48 @@ window.__ModuleLoader__.load({
       }
 
       if (footerRow) {
-        // 1. View Job button (only for job_output / wait tool cards)
+        // 1. Output button (job_output / wait cards) — opens the shared modal
+        let outputBtn = footerRow.querySelector('.dsh-live-output-btn');
+        if (showOutput) {
+          if (!outputBtn) {
+            outputBtn = document.createElement('button');
+            outputBtn.type = 'button';
+            outputBtn.className = 'dsh-live-output-btn';
+            outputBtn.title = 'View the job output';
+            outputBtn.innerHTML = `
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="3" width="12" height="10" rx="2"></rect>
+                <path d="M5 7l2 2-2 2M9 11h2"></path>
+              </svg>
+              <span>Output</span>
+            `;
+
+            outputBtn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              e.preventDefault();
+
+              const curWait = extractWaitInfo(card);
+              const curJobId = curWait.jobId || info?.jobId || jobId;
+              openOutputModal({
+                jobId: curJobId,
+                callId: curWait.callId || info?.callId || null,
+                command: (curJobId && knownJobCommands.get(curJobId)) || ''
+              });
+            });
+
+            const before = footerRow.querySelector('.dsh-live-view-job-btn') ||
+                           footerRow.querySelector('.dsh-live-stop-btn');
+            if (before) {
+              footerRow.insertBefore(outputBtn, before);
+            } else {
+              footerRow.appendChild(outputBtn);
+            }
+          }
+        } else if (outputBtn) {
+          outputBtn.remove();
+        }
+
+        // 2. View Job button — fallback only, when the modal is unavailable
         let viewJobBtn = footerRow.querySelector('.dsh-live-view-job-btn');
         if (showViewJob) {
           if (!viewJobBtn) {
@@ -1217,25 +1517,36 @@ window.__ModuleLoader__.load({
           viewJobBtn.remove();
         }
 
-        // 2. Stop button
+        // 3. Stop button
         let stopBtn = footerRow.querySelector('.dsh-live-stop-btn');
         if (showStop) {
           if (!stopBtn) {
             stopBtn = document.createElement('button');
             stopBtn.type = 'button';
             stopBtn.className = 'dsh-live-stop-btn';
-            stopBtn.title = 'Stop command';
-            stopBtn.innerHTML = `
-              <svg viewBox="0 0 16 16" fill="currentColor">
-                <rect x="3" y="3" width="10" height="10" rx="2"></rect>
-              </svg>
-              <span>Stop</span>
-            `;
+            stopBtn.title = isWait ? 'Stop waiting (job keeps running)' : 'Stop command';
+            stopBtn.innerHTML = STOP_BTN_HTML;
 
             stopBtn.addEventListener('click', (e) => {
               e.stopPropagation();
               e.preventDefault();
-              stopJob(info?.jobId, info?.callId, stopBtn, card);
+
+              // Wait cards stop ONLY the pending tool call; shell cards keep
+              // killing the job/process. Re-derive ids at click time so a card
+              // re-rendered since this closure was built cannot target a stale id.
+              if (isWait) {
+                const curWait = extractWaitInfo(card);
+                stopJob(
+                  curWait.jobId || info?.jobId || jobId,
+                  curWait.callId || info?.callId,
+                  stopBtn,
+                  card,
+                  { waitOnly: true }
+                );
+                return;
+              }
+
+              stopJob(info?.jobId || card?.dataset?.jobId, info?.callId, stopBtn, card);
             });
 
             footerRow.appendChild(stopBtn);
@@ -1244,7 +1555,9 @@ window.__ModuleLoader__.load({
           stopBtn.remove();
         }
 
-        if (!footerRow.querySelector('.dsh-live-view-job-btn') && !footerRow.querySelector('.dsh-live-stop-btn')) {
+        if (!footerRow.querySelector('.dsh-live-output-btn') &&
+            !footerRow.querySelector('.dsh-live-view-job-btn') &&
+            !footerRow.querySelector('.dsh-live-stop-btn')) {
           footerRow.remove();
         }
       }
@@ -1917,6 +2230,9 @@ window.__ModuleLoader__.load({
           }
         });
 
+        // Native background-job list rows become clickable affordances
+        tagJobListRows();
+
         stopPollingIfEmpty();
       } finally {
         Promise.resolve().then(() => {
@@ -1926,10 +2242,559 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // =====================================================================
+    // Output modal
+    //
+    // One shared instance behind every job-centric entry point:
+    //   * the `Output` button on a job_output (wait) card,
+    //   * a row of DSH's native background-job list.
+    // Output is read from the host by job id, so the modal keeps working when
+    // the card that spawned the job is no longer in the transcript — the exact
+    // case where the old scroll-to-card action answered "Job not found".
+    // =====================================================================
+    let sessionsService = null;
+    const outputModalState = { target: null };
+    const outputModalSubscribers = new Set();
+
+    function emitOutputModal() {
+      for (const fn of Array.from(outputModalSubscribers)) {
+        try { fn(); } catch (e) {}
+      }
+    }
+
+    function subscribeOutputModal(fn) {
+      outputModalSubscribers.add(fn);
+      return () => { outputModalSubscribers.delete(fn); };
+    }
+
+    /** Settle every card on screen that shows this job. */
+    function settleJobCards(jobId, markOutput) {
+      if (!jobId) return;
+
+      document.querySelectorAll(`[data-job-id="${jobId}"]`).forEach((card) => {
+        updateHeaderDot(card, false);
+
+        const liveBox = card.querySelector('.dsh-live-terminal-block');
+        if (liveBox) {
+          const dot = liveBox.querySelector('.dsh-live-terminal-dot');
+          if (dot) dot.classList.add('settled');
+
+          const outEl = liveBox.querySelector('.dsh-live-terminal-output');
+          if (markOutput && outEl && !outEl.textContent.includes('[Process stopped by user]')) {
+            outEl.textContent += (outEl.textContent ? '\n' : '') + '[Process stopped by user]\n';
+            outEl.scrollTop = outEl.scrollHeight;
+          }
+
+          liveBox.dataset.settled = 'true';
+          activeContainers.delete(liveBox);
+        }
+
+        const wrap = card.querySelector('[class*="bodyWrap"]');
+        if (wrap) updateStopButtonInBody(wrap, card, { jobId }, false);
+      });
+
+      stopPollingIfEmpty();
+    }
+
+    /** Close the modal and take the user to the card running this job. */
+    async function focusJobCard(jobId) {
+      if (!jobId) return false;
+      let targetCard = null;
+      try {
+        targetCard = await findOriginalJobCard(jobId, null);
+      } catch (e) {
+        targetCard = null;
+      }
+      if (!targetCard) return false;
+
+      openCard(targetCard);
+      scrollToCard(targetCard);
+      highlightCard(targetCard);
+      return true;
+    }
+
+    // The transcript is a paged window: DSH renders only the loaded history and
+    // pulls older entries back on demand ("Load earlier"), so a block from far
+    // back is genuinely absent from the DOM. `Session.loadOlder()` is the same
+    // paging call that button makes, and `ctx.sessions.binding(id).session` is
+    // how a plugin reaches it. There is no public "scroll to block" API.
+    const VIEW_BLOCK_MAX_PAGES = 6;
+    let viewBlockToken = 0;
+
+    /** The Session object behind the session on screen, for history paging. */
+    function currentSessionHandle() {
+      try {
+        const sessionId = currentSessionId();
+        if (!sessionId) return null;
+        const session = sessionsService?.binding?.(sessionId)?.session;
+        return session && typeof session.loadOlder === 'function' ? session : null;
+      } catch (e) {
+        // `binding` may mint a scope for an unlisted id; only the on-screen
+        // session is ever asked for, and a missing store must not break the UI.
+        return null;
+      }
+    }
+
+    function transcriptRowCount() {
+      try {
+        return document.querySelectorAll('[data-chat-anchor-key]').length;
+      } catch (e) {
+        return 0;
+      }
+    }
+
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    /**
+     * Take the user to the block that runs this job.
+     *
+     * Tier 1 — the card is already rendered: scroll to it and highlight it.
+     * Tier 2 — the card is outside the loaded window: page older history in
+     *   through the session itself, bounded, and retry after each page.
+     * Tier 3 — give up WITHOUT hiding the output: the caller keeps the modal open
+     *   and points at the chat's own "Load earlier" control.
+     *
+     * @param jobId - job whose block to reveal.
+     * @param runToken - generation of the request; a stale token stops the paging.
+     * @returns 'found' | 'not-found' | 'unavailable' | 'cancelled'.
+     */
+    async function viewJobBlock(jobId, runToken) {
+      if (!jobId) return 'unavailable';
+      if (await focusJobCard(jobId)) return 'found';
+
+      const session = currentSessionHandle();
+      if (!session) return 'not-found';
+
+      for (let page = 0; page < VIEW_BLOCK_MAX_PAGES; page += 1) {
+        if (runToken !== viewBlockToken) return 'cancelled';
+
+        const rowsBefore = transcriptRowCount();
+        try {
+          await session.loadOlder();
+        } catch (e) {
+          return 'not-found';
+        }
+        if (runToken !== viewBlockToken) return 'cancelled';
+
+        // Let the loaded page commit and render before looking again.
+        await wait(160);
+        if (runToken !== viewBlockToken) return 'cancelled';
+
+        if (await focusJobCard(jobId)) return 'found';
+        // A page that added no rows means there is no older history left.
+        if (transcriptRowCount() === rowsBefore) return 'not-found';
+      }
+      return 'not-found';
+    }
+
+    /** Stop the job itself (the background-job semantics, not the wait-only one). */
+    async function stopJobFromModal(jobId) {
+      if (!jobId) return false;
+      try {
+        const res = await fetch('/api/live-terminal/stop?jobId=' + encodeURIComponent(jobId), { method: 'POST' });
+        if (!res.ok) return false;
+        knownJobStatuses.set(jobId, false);
+        settleJobCards(jobId, true);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function openOutputModal(target) {
+      if (!modalSupported) return false;
+      if (!target || (!target.jobId && !target.callId)) return false;
+      viewBlockToken += 1;
+      outputModalState.target = { ...target };
+      emitOutputModal();
+      return true;
+    }
+
+    function closeOutputModal() {
+      // Stops any in-flight "View block" history paging.
+      viewBlockToken += 1;
+      if (!outputModalState.target) return;
+      outputModalState.target = null;
+      emitOutputModal();
+    }
+
+    // --- Session store access -------------------------------------------
+    /**
+     * Job views for the session on screen — the very array DSH's own
+     * background-job list renders, ids included.
+     */
+    function currentSessionJobs() {
+      try {
+        const snapshot = sessionsService?.list?.getSnapshot?.();
+        if (!snapshot || !snapshot.current) return null;
+        const jobs = snapshot.jobsBySession?.[snapshot.current];
+        return Array.isArray(jobs) ? jobs : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function currentSessionId() {
+      try {
+        const current = sessionsService?.list?.getSnapshot?.()?.current;
+        if (current) return current;
+      } catch (e) {}
+      return getActiveSessionId();
+    }
+
+    /** Registry fallback for the row mapping when the session store is absent. */
+    async function fetchSessionJobs() {
+      try {
+        const sessionId = currentSessionId();
+        const url = '/api/live-terminal/jobs' + (sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : '');
+        const res = await fetch(url);
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (!Array.isArray(data.jobs)) return null;
+        return data.jobs
+          // Entries without a label are output buffers of jobs the registry no
+          // longer holds: the native list never shows them, so neither may we.
+          .filter((job) => !!job.command)
+          .map((job) => ({
+            id: job.id,
+            kind: job.kind || '',
+            label: job.command || '',
+            status: job.status || '',
+            startedAt: job.startedAt || 0,
+            finishedAt: job.finishedAt ?? undefined
+          }));
+      } catch (e) {
+        return null;
+      }
+    }
+
+    // --- Native background-job list --------------------------------------
+    /**
+     * Same ordering as the native list: live rows first in start order, then
+     * settled rows newest-first. Row position is therefore an exact index into
+     * this array, which is what makes a row resolvable without a job id in the DOM.
+     */
+    function orderedJobsLikeNative(jobs) {
+      const isLive = (job) => job?.status === 'running' || job?.status === 'stopping';
+      return [...(jobs || [])].sort((left, right) => {
+        const liveLeft = isLive(left);
+        if (liveLeft !== isLive(right)) return liveLeft ? -1 : 1;
+        if (liveLeft) return (left.startedAt || 0) - (right.startedAt || 0);
+        const finished = ((right.finishedAt ?? right.startedAt) || 0) - ((left.finishedAt ?? left.startedAt) || 0);
+        return finished !== 0 ? finished : (left.startedAt || 0) - (right.startedAt || 0);
+      });
+    }
+
+    function sameJobMeta(job, meta) {
+      if (!job || !meta) return false;
+      if (job.label !== meta.label) return false;
+      return !meta.kind || job.kind === meta.kind;
+    }
+
+    /**
+     * Resolve a list row to a job id: by position first (exact), verified by the
+     * row's own kind+label, then by a unique kind+label match. Pure on purpose —
+     * it is the testable half of the row interception.
+     */
+    function resolveJobIdForRow(rowsMeta, rowIndex, jobs) {
+      const ordered = orderedJobsLikeNative(jobs);
+      const meta = rowsMeta?.[rowIndex] || null;
+      const candidate = ordered[rowIndex] || null;
+
+      if (candidate && (!meta || sameJobMeta(candidate, meta))) return candidate.id;
+      if (meta) {
+        const matches = ordered.filter((job) => sameJobMeta(job, meta));
+        if (matches.length === 1) return matches[0].id;
+      }
+      return null;
+    }
+
+    /** Structural test for a native list row (no ids or hooks are rendered). */
+    function isJobListRow(el) {
+      if (!el || el.tagName !== 'LI') return false;
+      if (!el.parentElement || el.parentElement.tagName !== 'UL') return false;
+      if (el.children.length < 4) return false;
+      return !!el.querySelector('[class*="_label"]') && !!el.querySelector('[class*="_duration"]');
+    }
+
+    function jobListRowMeta(row) {
+      const labelEl = row.querySelector('[class*="_label"]');
+      const kindEl = row.querySelector('[class*="_kind"]');
+      return {
+        label: labelEl?.getAttribute('title') || labelEl?.textContent?.trim() || '',
+        kind: kindEl?.textContent?.trim() || ''
+      };
+    }
+
+    function jobListRows() {
+      const rows = [];
+      for (const row of document.querySelectorAll('li[class*="_row"]')) {
+        if (isJobListRow(row)) rows.push(row);
+      }
+      return rows;
+    }
+
+    /**
+     * Give rows a discovery hint. Only `title` is set: React owns className and
+     * re-writes it on every duration tick, so styling lives in structural CSS
+     * instead, and this stays idempotent and cheap.
+     */
+    function tagJobListRows() {
+      let rows;
+      try {
+        rows = jobListRows();
+      } catch (e) {
+        return;
+      }
+      for (const row of rows) {
+        if (!row.title) row.title = 'Open output';
+      }
+    }
+
+    async function openOutputForRow(row) {
+      const claimed = row;
+      let jobs = currentSessionJobs();
+      if (!jobs) jobs = await fetchSessionJobs();
+      if (!jobs || !claimed.isConnected || !claimed.parentElement) return;
+
+      const siblings = Array.from(claimed.parentElement.children).filter(isJobListRow);
+      const index = siblings.indexOf(claimed);
+      if (index < 0) return;
+
+      const rowsMeta = siblings.map(jobListRowMeta);
+      const jobId = resolveJobIdForRow(rowsMeta, index, jobs);
+      if (!jobId) return;
+
+      const job = jobs.find((candidate) => candidate.id === jobId) || null;
+      openOutputModal({
+        jobId,
+        kind: job?.kind || rowsMeta[index]?.kind || '',
+        command: job?.label || rowsMeta[index]?.label || ''
+      });
+    }
+
+    /**
+     * Claim a click on a native list row. Rows do nothing on their own today, so
+     * swallowing the click is safe; resolution then continues asynchronously.
+     */
+    function onDocumentClickCapture(event) {
+      const row = event.target?.closest?.('li');
+      if (!isJobListRow(row)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openOutputForRow(row).catch(() => {});
+    }
+
+    // --- Modal component --------------------------------------------------
+    function OutputModal() {
+      const [snapshot, setSnapshot] = React.useState(() => outputModalState.target);
+      const [output, setOutput] = React.useState('');
+      const [status, setStatus] = React.useState('');
+      const [active, setActive] = React.useState(true);
+      const [focusFailed, setFocusFailed] = React.useState(false);
+      const [locating, setLocating] = React.useState(false);
+      const [copied, setCopied] = React.useState(false);
+      const [stopping, setStopping] = React.useState(false);
+      const preRef = React.useRef(null);
+      const stickToBottom = React.useRef(true);
+
+      React.useEffect(() => subscribeOutputModal(() => {
+        setSnapshot(outputModalState.target);
+        setFocusFailed(false);
+        setCopied(false);
+        setStopping(false);
+        setLocating(false);
+      }), []);
+
+      const jobId = snapshot?.jobId || null;
+      const callId = snapshot?.callId || null;
+      const targetKey = jobId || callId || null;
+
+      // Poll the host while the modal is open; the loop ends on its own once the
+      // job settles, and the effect teardown cancels it on close or target swap.
+      React.useEffect(() => {
+        if (!targetKey) {
+          setOutput('');
+          return undefined;
+        }
+        let cancelled = false;
+        let timer = null;
+        let lastText = null;
+        let settledReads = 0;
+        stickToBottom.current = true;
+        setOutput('Loading output...');
+        setStatus('');
+        setActive(true);
+
+        const tick = async () => {
+          if (cancelled) return;
+          const params = new URLSearchParams();
+          if (jobId) params.append('jobId', jobId);
+          else if (callId) params.append('id', callId);
+
+          let stillActive = false;
+          let answered = false;
+          try {
+            const res = await fetch('/api/live-terminal/output?' + params.toString());
+            if (res.ok) {
+              const data = await res.json();
+              answered = true;
+              const found = data.found === true;
+              const text = found
+                ? (data.output || '(no output yet)')
+                : '(no output available on the server for this job)';
+              if (text !== lastText) {
+                lastText = text;
+                setOutput(text);
+              }
+              if (data.status) setStatus(String(data.status));
+              stillActive = found && data.active === true;
+            }
+          } catch (e) {}
+
+          if (cancelled) return;
+          setActive(stillActive);
+
+          if (stillActive) {
+            settledReads = 0;
+            timer = setTimeout(tick, 300);
+            return;
+          }
+          // Settled: re-read twice more (a job's final output can land just
+          // after it settles), then stop polling this target for good.
+          settledReads += 1;
+          if (answered && settledReads <= 2) timer = setTimeout(tick, 600);
+        };
+
+        tick();
+        return () => {
+          cancelled = true;
+          if (timer) clearTimeout(timer);
+        };
+      }, [targetKey, jobId, callId]);
+
+      // Tail-follow: stay pinned to the newest line until the user scrolls up.
+      React.useEffect(() => {
+        const el = preRef.current;
+        if (!el) return undefined;
+        const onScroll = () => {
+          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+        };
+        el.addEventListener('scroll', onScroll, { passive: true });
+        return () => el.removeEventListener('scroll', onScroll);
+      }, [targetKey]);
+
+      React.useEffect(() => {
+        const el = preRef.current;
+        if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+      }, [output]);
+
+      if (!snapshot || !targetKey) return null;
+
+      const onCopy = async () => {
+        const ok = await copyToClipboard(output);
+        if (!ok) return;
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      };
+
+      const onFocusCard = async () => {
+        if (locating) return;
+        setLocating(true);
+        setFocusFailed(false);
+        const outcome = await viewJobBlock(jobId, viewBlockToken);
+        setLocating(false);
+        if (outcome === 'found') closeOutputModal();
+        else if (outcome === 'not-found') setFocusFailed(true);
+      };
+
+      const onStop = async () => {
+        if (!jobId || stopping) return;
+        setStopping(true);
+        await stopJobFromModal(jobId);
+        setStopping(false);
+      };
+
+      const footer = h('div', { className: 'dsh-live-modal-footer' }, [
+        focusFailed
+          ? h('span', { className: 'dsh-live-modal-hint', key: 'hint' }, 'Block not in the loaded transcript — use "Load earlier" in the chat')
+          : null,
+        h('button', {
+          key: 'focus',
+          type: 'button',
+          className: 'dsh-live-modal-action',
+          title: locating ? 'Loading older history...' : 'Scroll to the block running this job',
+          disabled: !jobId || locating,
+          onClick: onFocusCard
+        }, locating ? 'Locating...' : 'View block'),
+        h('button', {
+          key: 'copy',
+          type: 'button',
+          className: 'dsh-live-modal-action',
+          onClick: onCopy
+        }, copied ? 'Copied!' : 'Copy'),
+        h('button', {
+          key: 'stop',
+          type: 'button',
+          className: 'dsh-live-modal-action dsh-live-modal-action-danger',
+          title: 'Stop the background job',
+          disabled: !jobId || stopping,
+          onClick: onStop
+        }, stopping ? 'Stopping...' : 'Stop job')
+      ]);
+
+      const body = h('div', { className: 'dsh-live-modal-body' }, [
+        h('div', { className: 'dsh-live-modal-meta', key: 'meta' }, [
+          h('span', { className: 'dsh-live-modal-status', key: 'status' }, status || (active ? 'running' : 'settled')),
+          h('span', {
+            className: 'dsh-live-modal-command',
+            key: 'command',
+            title: snapshot.command || ''
+          }, snapshot.command || (snapshot.kind ? `${snapshot.kind} ${targetKey}` : targetKey))
+        ]),
+        h('pre', { className: 'dsh-live-modal-output', key: 'output', ref: preRef }, output)
+      ]);
+
+      return h(Primitives.Modal, {
+        open: true,
+        onClose: closeOutputModal,
+        title: `Output — ${targetKey}`,
+        closeLabel: 'Close',
+        className: 'dsh-live-modal',
+        footer
+      }, body);
+    }
+
     exports.inject = ['slots'];
     exports.apply = function(ctx) {
       console.log('[dsh-plugin-live-terminal] client plugin initialized live monitor');
       ensureStyles();
+
+      // Optional session store: DSH's own background-job list renders from it,
+      // which is how a clicked row is resolved back to a job id.
+      try {
+        ctx.inject(['sessions'], (child) => {
+          sessionsService = child.sessions;
+        });
+      } catch (e) {
+        console.warn('[dsh-plugin-live-terminal] sessions store unavailable:', e);
+      }
+
+      // The shared output modal lives in the shell's overlay layer.
+      if (modalSupported) {
+        try {
+          ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+            name: 'shell.overlay',
+            id: 'dsh-live-terminal-output',
+            order: 40
+          }, OutputModal));
+        } catch (e) {
+          console.warn('[dsh-plugin-live-terminal] could not register the output modal:', e);
+        }
+      }
+
+      // A click on a native background-job row opens that job's output.
+      document.addEventListener('click', onDocumentClickCapture, true);
 
       const observer = new MutationObserver((mutations) => {
         if (isPerformingPluginDomUpdates) return;
@@ -1961,6 +2826,15 @@ window.__ModuleLoader__.load({
       }
 
       scheduleUpdate();
+    };
+
+    // Pure helpers exposed for `client-logic-test.mjs` (no DOM required).
+    exports.__internals = {
+      orderedJobsLikeNative,
+      sameJobMeta,
+      resolveJobIdForRow,
+      jobListRowMeta,
+      isJobListRow
     };
 
     return module.exports;

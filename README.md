@@ -14,6 +14,8 @@ By default, DSH buffers standard output and only presents the completed terminal
 - 🎨 **100% Native Design**: Seamlessly aligns with DSH's official `--dsw-*` design tokens, font hierarchy, and theme colors (Catppuccin, Dark, Light).
 - 📌 **Pinned Sticky Header**: The command prompt header remains pinned while the output scrolls independently.
 - ⚡ **Zero External Dependencies**: Lightweight Cordis client/server extension with automatic lifecycle cleanup upon process settlement.
+- ⏹️ **Stop, Scoped to the Right Thing**: On a `job_output` card, **Stop** ends only the waiting tool call and leaves the background job running; on a `pwsh`/`bash` card it still kills the job or process.
+- 🖥️ **Output Modal**: From a `job_output` card, or by clicking a row in DSH's own background-job list, the job's output opens in a modal with **View block** (jump to the card running it — paging older history in when the transcript has not loaded it yet), **Copy**, and **Stop job**. It reads output by job id, so it still works once the spawning card is out of the transcript.
 
 ---
 
@@ -62,6 +64,7 @@ dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-plugin-liv
 2. Clicking the tool call row expands the **Live Terminal View**.
 3. Stdout stream is captured from `ctx.subprocess` and fed into the live terminal console in real-time.
 4. Once the process settles, the live viewer gracefully steps aside and hands over to DSH's native settled terminal card.
+5. Job-centric views (a `job_output` card, or a row of the session's background-job list) open one shared **output modal**; it streams by job id from the host, so it keeps working even when the card that spawned the job has left the transcript — the case where the old "View Job" action answered *Job not found*.
 
 ---
 
@@ -77,6 +80,8 @@ Plugin hỗ trợ xem **Live Stream Terminal Output** theo thời gian thực ch
 - 🎨 **Giao diện chuẩn gốc**: Đồng bộ 100% với giao diện, màu sắc và theme của DSH Desktop.
 - 📌 **Cố định Header**: Header chứa câu lệnh luôn được giữ cố định ở trên cùng khi cuộn xem log bên dưới.
 - ⚡ **Tự động dọn dẹp**: Khi lệnh chạy xong, giao diện tự động trả lại khối hiển thị mặc định của DSH.
+- ⏹️ **Stop đúng phạm vi**: Trên card `job_output`, nút **Stop** chỉ kết thúc tool call đang chờ, job nền vẫn tiếp tục chạy; trên card `pwsh`/`bash` thì vẫn kill job/tiến trình như cũ.
+- 🖥️ **Modal xem output**: Từ card `job_output`, hoặc click vào một dòng trong danh sách background job của DSH, output của job mở trong modal kèm **View block** (nhảy tới card đang chạy job đó — tự nạp thêm history cũ nếu transcript chưa load tới), **Copy** và **Stop job**. Modal đọc output theo job id nên vẫn dùng được khi card khởi tạo job đã rời khỏi transcript.
 
 ### Cách cài đặt trên DSH Desktop
 
@@ -114,6 +119,8 @@ cd "$HOME/.config/dsh-desktop/harness/profiles/web"
 - 🎨 **原生样式对齐**：完全适配 DSH 官方 `--dsw-*` 设计规范及主题（Catppuccin、暗色、亮色）。
 - 📌 **固定命令头**：支持独立滚动日志，保持顶部命令提示栏固定。
 - ⚡ **自动交接**：命令执行完毕后自动切回官方默认结果展示卡片。
+- ⏹️ **按上下文停止**：在 `job_output` 卡片上，**Stop** 只结束正在等待的工具调用，后台任务继续运行；在 `pwsh`/`bash` 卡片上仍然终止任务或进程。
+- 🖥️ **输出弹窗**：从 `job_output` 卡片，或点击 DSH 后台任务列表中的一行，即可在弹窗中查看该任务的输出，并提供 **View block**（跳转到运行该任务的卡片，必要时自动加载更早的历史）、**Copy** 与 **Stop job**。弹窗按 job id 读取输出，因此即便发起任务的卡片已离开对话记录也仍然可用。
 
 ### DSH Desktop 安装方法
 
