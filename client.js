@@ -18,27 +18,54 @@ window.__ModuleLoader__.load({
           --dsl-terminal-line-height: 22px;
           --dsl-terminal-font: var(--dsw-font-markdown-code-block);
           --dsl-terminal-gutter: 30px;
+          --dsl-terminal-output-max-height: 260px;
           position: relative;
-          margin: 6px 0 6px 4px;
+          margin: 4px 0 4px 4px;
           padding-left: var(--dsl-terminal-gutter);
           color: var(--dsw-alias-label-primary);
           background: var(--dsw-alias-markdown-code-block);
           border: 1px solid var(--dsw-alias-border-l1);
           border-radius: var(--dsl-terminal-radius);
           overflow: hidden;
+          /* The gutter is this card's OWN padding, so the box must be
+             border-box: the host card body stretches its children to 100%
+             (flex 0 0 100% / width 100%), and a content-box card would then be
+             100% + gutter + border wide and spill out of the card. */
+          box-sizing: border-box !important;
+          min-width: 0 !important;
+          max-width: 100% !important;
           font: var(--dsw-font-markdown-code-block-small, var(--dsl-terminal-font));
         }
 
-        /* Fixed header with prompt: cwd, command, and Copy button */
+        /* Fixed header with prompt: cwd, command, and Copy button.
+           flex-start (not center) plus a sticky Copy button keeps the
+           control on the FIRST prompt row even when the command spans many
+           lines, instead of floating in the middle of a tall banner. */
         .dsh-live-terminal-header {
           display: flex;
-          align-items: center;
+          align-items: flex-start;
           gap: 12px;
           margin-left: calc(-1 * var(--dsl-terminal-gutter));
           padding: 8px 14px 8px var(--dsl-terminal-gutter);
           border-bottom: 1px solid var(--dsw-alias-border-l2);
           background-color: var(--dsw-alias-markdown-code-block);
+          box-sizing: border-box;
+          /* A long multi-line command scrolls inside the banner (same cap as
+             the native card) instead of pushing the output off screen. */
+          max-height: 150px;
+          overflow-y: auto;
           user-select: text;
+        }
+
+        .dsh-live-terminal-header::-webkit-scrollbar-thumb {
+          border: 2px solid transparent;
+          background-clip: padding-box;
+          border-radius: 6px;
+          background-color: var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.2));
+        }
+
+        .dsh-live-terminal-header::-webkit-scrollbar-track {
+          margin: 6px;
         }
 
         .dsh-live-terminal-prompt-line {
@@ -119,11 +146,18 @@ window.__ModuleLoader__.load({
           cursor: text;
         }
 
-        /* Copy command button */
+        /* Copy command button — pinned to the top of the scrollable banner */
         .dsh-live-copy-btn {
           flex: none;
           margin-left: auto;
-          background: transparent;
+          align-self: flex-start;
+          position: sticky;
+          top: 0;
+          height: var(--dsl-terminal-line-height, 22px);
+          /* Card surface, not transparent: the control is sticky over the
+             banner's own scroll, so scrolled command text must not bleed
+             through it. */
+          background: var(--dsw-alias-markdown-code-block);
           border: none;
           color: var(--dsw-alias-label-tertiary, #8b949e);
           font-family: inherit;
@@ -146,7 +180,7 @@ window.__ModuleLoader__.load({
 
         /* Output text area */
         .dsh-live-terminal-output {
-          max-height: 260px;
+          max-height: var(--dsl-terminal-output-max-height, 260px);
           padding: 12px 14px 12px 0;
           overflow-x: auto;
           overflow-y: auto;
@@ -156,6 +190,7 @@ window.__ModuleLoader__.load({
           line-height: 20px;
           font-size: 12px;
           color: var(--dsw-alias-label-secondary);
+          box-sizing: border-box;
         }
 
         .dsh-live-terminal-output::-webkit-scrollbar-thumb {
@@ -196,11 +231,29 @@ window.__ModuleLoader__.load({
           font-size: 0 !important;
         }
 
-        /* Align footer action buttons (Stop, View Job) on the same horizontal row as Inspect button */
+        /* Align footer action buttons (Stop, View Job) on the same horizontal row as Inspect button.
+           The host card body is a flex COLUMN; wrapping it into rows is the only way to share a line
+           with the Inspect button. A row flex item that carries a 100% basis PLUS its own padding or
+           border (content-box) is wider than the body and spills out of the card, so every child is
+           re-boxed to border-box, re-indented from the body's own padding instead of margins, and
+           clamped to 100% — nothing inside can render out of the card. */
         [class*="bodyWrap"]:has(.dsh-live-footer-row) {
           flex-direction: row !important;
           flex-wrap: wrap !important;
+          align-content: flex-start !important;
           align-items: center !important;
+          column-gap: 8px !important;
+          /* Replaces the children's own 4px left indent (their margins are
+             cleared below) so the card content keeps its exact position. */
+          padding-left: 4px !important;
+        }
+
+        [class*="bodyWrap"]:has(.dsh-live-footer-row) > * {
+          box-sizing: border-box !important;
+          min-width: 0 !important;
+          max-width: 100% !important;
+          margin-left: 0 !important;
+          margin-right: 0 !important;
         }
 
         [class*="bodyWrap"]:has(.dsh-live-footer-row) > :not(.dsh-live-footer-row):not([class*="inspectButton"]) {
@@ -220,7 +273,7 @@ window.__ModuleLoader__.load({
           display: inline-flex;
           align-items: center;
           gap: 8px;
-          margin: 4px 6px 4px 4px;
+          margin: 4px 0;
           flex: none;
           vertical-align: middle;
         }
