@@ -15,7 +15,7 @@ By default, DSH buffers standard output and only presents the completed terminal
 - 📌 **Pinned Sticky Header**: The command prompt header remains pinned while the output scrolls independently.
 - ⚡ **Zero External Dependencies**: Lightweight Cordis client/server extension with automatic lifecycle cleanup upon process settlement.
 - ⏹️ **Stop, Scoped to the Right Thing**: On a `job_output` card, **Stop** ends only the waiting tool call and leaves the background job running; on a `pwsh`/`bash` card it still kills the job or process.
-- 🖥️ **Output Modal**: From a `job_output` card, or by clicking a row in DSH's own background-job list, the job's output opens in a modal with **View block** (jump to the card running it — paging older history in when the transcript has not loaded it yet), **Copy**, and **Stop job**. It reads output by job id, so it still works once the spawning card is out of the transcript. The status row reuses DSH's own vocabulary — the state dot and status words of the native job list, where `killed` reads as *cancelled* — plus the run duration, and **Stop job** is disabled once the job has finished.
+- 🖥️ **Output Modal**: From a `job_output` card, or by clicking a row in DSH's own background-job list, the job's output opens in a modal with **View block** (jump to the card running it — paging older history in when the transcript has not loaded it yet), **Copy**, and **Stop job**. It reads output by job id, so it still works once the spawning card is out of the transcript. The status row reuses DSH's own vocabulary — the state dot of the native job list (`killed` reads as *cancelled* in its tooltip) plus the run duration — and **Stop job** is disabled once the job has finished.
 
 ---
 
@@ -81,7 +81,7 @@ Plugin hỗ trợ xem **Live Stream Terminal Output** theo thời gian thực ch
 - 📌 **Cố định Header**: Header chứa câu lệnh luôn được giữ cố định ở trên cùng khi cuộn xem log bên dưới.
 - ⚡ **Tự động dọn dẹp**: Khi lệnh chạy xong, giao diện tự động trả lại khối hiển thị mặc định của DSH.
 - ⏹️ **Stop đúng phạm vi**: Trên card `job_output`, nút **Stop** chỉ kết thúc tool call đang chờ, job nền vẫn tiếp tục chạy; trên card `pwsh`/`bash` thì vẫn kill job/tiến trình như cũ.
-- 🖥️ **Modal xem output**: Từ card `job_output`, hoặc click vào một dòng trong danh sách background job của DSH, output của job mở trong modal kèm **View block** (nhảy tới card đang chạy job đó — tự nạp thêm history cũ nếu transcript chưa load tới), **Copy** và **Stop job**. Modal đọc output theo job id nên vẫn dùng được khi card khởi tạo job đã rời khỏi transcript. Hàng trạng thái dùng đúng ngôn ngữ của DSH — dot trạng thái và từ ngữ y như danh sách job native (`killed` hiển thị là *cancelled*) — kèm thời gian chạy, và **Stop job** bị vô hiệu hoá khi job đã kết thúc.
+- 🖥️ **Modal xem output**: Từ card `job_output`, hoặc click vào một dòng trong danh sách background job của DSH, output của job mở trong modal kèm **View block** (nhảy tới card đang chạy job đó — tự nạp thêm history cũ nếu transcript chưa load tới), **Copy** và **Stop job**. Modal đọc output theo job id nên vẫn dùng được khi card khởi tạo job đã rời khỏi transcript. Hàng trạng thái dùng đúng ngôn ngữ của DSH — dot trạng thái y như danh sách job native (`killed` hiển thị là *cancelled* trong tooltip) — kèm thời gian chạy, và **Stop job** bị vô hiệu hoá khi job đã kết thúc.
 
 ### Cách cài đặt trên DSH Desktop
 
@@ -120,7 +120,7 @@ cd "$HOME/.config/dsh-desktop/harness/profiles/web"
 - 📌 **固定命令头**：支持独立滚动日志，保持顶部命令提示栏固定。
 - ⚡ **自动交接**：命令执行完毕后自动切回官方默认结果展示卡片。
 - ⏹️ **按上下文停止**：在 `job_output` 卡片上，**Stop** 只结束正在等待的工具调用，后台任务继续运行；在 `pwsh`/`bash` 卡片上仍然终止任务或进程。
-- 🖥️ **输出弹窗**：从 `job_output` 卡片，或点击 DSH 后台任务列表中的一行，即可在弹窗中查看该任务的输出，并提供 **View block**（跳转到运行该任务的卡片，必要时自动加载更早的历史）、**Copy** 与 **Stop job**。弹窗按 job id 读取输出，因此即便发起任务的卡片已离开对话记录也仍然可用。状态行沿用 DSH 自身的表达方式 — 与后台任务列表一致的状态圆点和状态词（`killed` 显示为 *cancelled*）— 并附带运行时长；任务结束后 **Stop job** 会被禁用。
+- 🖥️ **输出弹窗**：从 `job_output` 卡片，或点击 DSH 后台任务列表中的一行，即可在弹窗中查看该任务的输出，并提供 **View block**（跳转到运行该任务的卡片，必要时自动加载更早的历史）、**Copy** 与 **Stop job**。弹窗按 job id 读取输出，因此即便发起任务的卡片已离开对话记录也仍然可用。状态行沿用 DSH 自身的表达方式 — 与后台任务列表一致的状态圆点（`killed` 在提示中显示为 *cancelled*）— 并附带运行时长；任务结束后 **Stop job** 会被禁用。
 
 ### DSH Desktop 安装方法
 

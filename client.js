@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
 
     // Kept in step with package.json: it names the running build in the console,
     // which is the fastest way to tell whether a page picked up a new install.
-    const CLIENT_VERSION = '0.3.3';
+    const CLIENT_VERSION = '0.3.4';
     console.log(`[dsh-plugin-live-terminal] client factory loaded (v${CLIENT_VERSION})`);
 
     // The web shell's static module registry always exposes `react` and
@@ -31,7 +31,7 @@ window.__ModuleLoader__.load({
     // Bump whenever the stylesheet text changes: a page that hot-reloaded this
     // plugin keeps the PREVIOUS <style> element, and an id-only check would then
     // leave every new rule (the whole modal, for instance) missing from the page.
-    const STYLE_VERSION = '5';
+    const STYLE_VERSION = '6';
     function ensureStyles() {
       const existing = document.getElementById(STYLE_ID);
       if (existing && existing.dataset.version === STYLE_VERSION) return;
@@ -486,14 +486,19 @@ window.__ModuleLoader__.load({
           line-height: 18px;
         }
 
-        .dsh-live-modal-status {
-          flex: none;
-          padding: 0 8px;
-          border-radius: 999px;
-          background: var(--dsw-alias-fill-l2);
-          color: var(--dsw-alias-label-secondary);
-          font-size: 11px;
-          line-height: 18px;
+        /* Screen-reader-only text. StateDot is aria-hidden, so the status word
+           has to exist somewhere for assistive tech even though the dot and its
+           tooltip are all a sighted user needs. */
+        .dsh-live-modal-sr {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          margin: -1px;
+          padding: 0;
+          overflow: hidden;
+          clip: rect(0 0 0 0);
+          white-space: nowrap;
+          border: 0;
         }
 
         .dsh-live-modal-dot {
@@ -2900,9 +2905,12 @@ window.__ModuleLoader__.load({
 
       const body = h('div', { className: 'dsh-live-modal-body', style: MODAL_BODY_STYLE }, [
         h('div', { className: 'dsh-live-modal-meta', key: 'meta' }, [
-          StateDot
-            ? h(StateDot, { key: 'dot', state: dotTone, size: 10, className: 'dsh-live-modal-dot' })
-            : null,
+          // The dot is the whole visual state: no status word competes with the
+          // command for the row. The word survives as the dot's tooltip and as
+          // text for assistive tech, because StateDot is aria-hidden.
+          h('span', { key: 'dot', className: 'dsh-live-modal-dot', title: statusWord },
+            StateDot ? h(StateDot, { state: dotTone, size: 10 }) : null),
+          h('span', { className: 'dsh-live-modal-sr', key: 'status' }, statusWord),
           h('span', {
             className: 'dsh-live-modal-command',
             key: 'command',
@@ -2914,8 +2922,7 @@ window.__ModuleLoader__.load({
               key: 'duration',
               title: active ? `Running for ${durationText}` : `Took ${durationText}`
             }, durationText)
-            : null,
-          h('span', { className: 'dsh-live-modal-status', key: 'status' }, statusWord)
+            : null
         ]),
         h('pre', { className: 'dsh-live-modal-output', key: 'output', ref: preRef, style: MODAL_OUTPUT_STYLE }, output)
       ]);

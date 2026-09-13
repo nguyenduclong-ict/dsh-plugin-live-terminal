@@ -250,20 +250,23 @@ check('output pane is monospaced', String(paneStyle.fontFamily || '').includes('
 check('output pane does not use the default pre margin', paneStyle.margin === 0);
 check('inline styles match the stylesheet constants', paneStyle === internals.MODAL_OUTPUT_STYLE && bodyStyle === internals.MODAL_BODY_STYLE);
 
-// --- meta row: dot, command, duration, status pill -------------------------
+// --- meta row: dot, command, duration (status has no visible word) ---------
 const meta = Array.isArray(body?.props?.children)
   ? body.props.children.find((child) => child?.props?.className === 'dsh-live-modal-meta')
   : null;
 const metaChildren = (meta?.props?.children || []).filter(Boolean);
-check('meta row is dot + command + duration + status', metaChildren.length === 4, metaChildren.map((c) => c.props.className || c.type?.name));
-check('status dot leads the row, like the native job list', metaChildren[0]?.type === StateDotStub && metaChildren[0].props.className === 'dsh-live-modal-dot');
-check('running job shows the ongoing marker', metaChildren[0]?.props?.state === 'ongoing', metaChildren[0]?.props?.state);
-check('dot uses the figma size', metaChildren[0]?.props?.size === 10);
-check('command carries the tooltip', metaChildren[1]?.props?.className === 'dsh-live-modal-command' && metaChildren[1].props.title === 'python backtest.py');
-check('duration uses the DSH format', metaChildren[2]?.props?.children === '1m 15s', metaChildren[2]?.props?.children);
-check('duration explains itself while live', metaChildren[2]?.props?.title === 'Running for 1m 15s', metaChildren[2]?.props?.title);
-check('status pill closes the row so it cannot be clipped', metaChildren[3]?.props?.className === 'dsh-live-modal-status');
-check('status pill names the live status', metaChildren[3]?.props?.children === 'running', metaChildren[3]?.props?.children);
+const visibleCells = metaChildren.filter((c) => c.props.className !== 'dsh-live-modal-sr');
+const cellNames = visibleCells.map((c) => c.props.className || c.type?.name);
+check('meta row shows dot + command + duration', cellNames.join('|') === 'dsh-live-modal-dot|dsh-live-modal-command|dsh-live-modal-duration', cellNames);
+check('no visible cell renders a status word', visibleCells.every((c) => ['running', 'completed', 'cancelled', 'failed', 'stopping', 'settled'].indexOf(c.props.children) === -1));
+check('status dot leads the row, like the native job list', visibleCells[0]?.type === 'span' && visibleCells[0].props.children?.type === StateDotStub);
+check('running job shows the ongoing marker', visibleCells[0]?.props?.children?.props?.state === 'ongoing', visibleCells[0]?.props?.children?.props?.state);
+check('dot uses the figma size', visibleCells[0]?.props?.children?.props?.size === 10);
+check('dot carries the status word as its tooltip', visibleCells[0]?.props?.title === 'running', visibleCells[0]?.props?.title);
+check('status word survives for assistive tech behind the aria-hidden dot', metaChildren.some((c) => c.props.className === 'dsh-live-modal-sr' && c.props.children === 'running'));
+check('command carries the tooltip', visibleCells[1]?.props?.className === 'dsh-live-modal-command' && visibleCells[1].props.title === 'python backtest.py');
+check('duration uses the DSH format', visibleCells[2]?.props?.children === '1m 15s', visibleCells[2]?.props?.children);
+check('duration explains itself while live', visibleCells[2]?.props?.title === 'Running for 1m 15s', visibleCells[2]?.props?.title);
 
 // --- footer actions for a live job -----------------------------------------
 function footerButtons(element) {
@@ -273,6 +276,18 @@ function footerButtons(element) {
 function buttonLabel(button) {
   const children = button.props.children;
   return Array.isArray(children) ? children.filter((c) => typeof c === 'string').join('') : children;
+}
+
+/** Cells of the meta row, in document order. */
+function metaCells(element) {
+  const row = (element?.props?.children?.props?.children || [])
+    .find((child) => child?.props?.className === 'dsh-live-modal-meta');
+  return (row?.props?.children || []).filter(Boolean);
+}
+
+/** One meta cell by class; null when that cell is not rendered. */
+function metaCell(cells, className) {
+  return cells.find((cell) => cell?.props?.className === className) || null;
 }
 
 let buttons = footerButtons(tree);
@@ -298,28 +313,33 @@ const finishedTree = renderModal();
 buttons = footerButtons(finishedTree);
 check('Stop job is disabled once the job has finished', buttons[2].props.disabled === true);
 check('Stop job explains why it is disabled', buttons[2].props.title === 'This job has already finished', buttons[2].props.title);
-const finishedMeta = (finishedTree?.props?.children?.props?.children || [])
-  .find((child) => child?.props?.className === 'dsh-live-modal-meta');
-const finishedCells = (finishedMeta?.props?.children || []).filter(Boolean);
-check('finished job reports its own status', finishedCells[3]?.props?.children === 'completed', finishedCells[3]?.props?.children);
-check('finished job shows the done marker', finishedCells[0]?.props?.state === 'done', finishedCells[0]?.props?.state);
-check('finished job freezes its duration', finishedCells[2]?.props?.children === '7m 32s', finishedCells[2]?.props?.children);
-check('frozen duration is labelled as total time', finishedCells[2]?.props?.title === 'Took 7m 32s', finishedCells[2]?.props?.title);
+const finishedCells = metaCells(finishedTree);
+check('finished job shows the done marker', metaCell(finishedCells, 'dsh-live-modal-dot')?.props?.children?.props?.state === 'done');
+check('finished job reports its state to assistive tech only', metaCell(finishedCells, 'dsh-live-modal-sr')?.props?.children === 'completed');
+check('finished job freezes its duration', metaCell(finishedCells, 'dsh-live-modal-duration')?.props?.children === '7m 32s', metaCell(finishedCells, 'dsh-live-modal-duration')?.props?.children);
+check('frozen duration is labelled as total time', metaCell(finishedCells, 'dsh-live-modal-duration')?.props?.title === 'Took 7m 32s');
 
 // --- a job whose status is not known yet -----------------------------------
 internals.closeOutputModal();
 internals.openOutputModal({ jobId: 'pwsh-7', command: 'npm run build' });
 const unknownTree = renderModal();
-const unknownCells = ((unknownTree?.props?.children?.props?.children || [])
-  .find((child) => child?.props?.className === 'dsh-live-modal-meta')?.props?.children || []).filter(Boolean);
-check('unknown status still shows a marker', unknownCells[0]?.props?.state === 'ongoing', unknownCells[0]?.props?.state);
-check('unknown status hides the duration instead of faking one', unknownCells.length === 3, unknownCells.map((c) => c.props.className || c.type?.name));
+const unknownCells = metaCells(unknownTree);
+check('unknown status still shows a marker', metaCell(unknownCells, 'dsh-live-modal-dot')?.props?.children?.props?.state === 'ongoing');
+check('unknown status hides the duration instead of faking one', metaCell(unknownCells, 'dsh-live-modal-duration') === null);
+
+// --- a job killed on request reads like DSH reads it ------------------------
+internals.closeOutputModal();
+internals.openOutputModal({ jobId: 'pwsh-5', command: 'npm run watch', status: 'killed' });
+const killedCells = metaCells(renderModal());
+check('a killed job shows the attention marker, not the error one', metaCell(killedCells, 'dsh-live-modal-dot')?.props?.children?.props?.state === 'warning');
+check('a killed job is described as cancelled, exactly like DSH', metaCell(killedCells, 'dsh-live-modal-dot')?.props?.title === 'cancelled', metaCell(killedCells, 'dsh-live-modal-dot')?.props?.title);
 
 // --- stylesheet regressions ------------------------------------------------
 const css = injectedStyles.join('\n');
 check('stylesheet has a command cell that grows and ellipsizes', /\.dsh-live-modal-command\s*\{[^}]*flex:\s*1 1 auto[^}]*text-overflow:\s*ellipsis/.test(css));
-check('stylesheet pins the status pill', /\.dsh-live-modal-status\s*\{[^}]*flex:\s*none/.test(css));
 check('stylesheet pins the dot and the duration', /\.dsh-live-modal-dot\s*\{[^}]*flex:\s*none/.test(css) && /\.dsh-live-modal-duration\s*\{[^}]*font-variant-numeric:\s*tabular-nums/.test(css));
+check('stylesheet hides the assistive-tech status text', /\.dsh-live-modal-sr\s*\{[^}]*clip:\s*rect\(0 0 0 0\)/.test(css));
+check('the visible status pill is gone', css.indexOf('.dsh-live-modal-status') === -1);
 check('stylesheet gives the danger button real contrast', /\.dsh-live-modal-action-danger\s*\{[^}]*color:\s*#f87171/.test(css));
 check('stylesheet distinguishes disabled actions', /\.dsh-live-modal-action-danger:disabled/.test(css) && /\.dsh-live-modal-action:disabled/.test(css));
 check(
