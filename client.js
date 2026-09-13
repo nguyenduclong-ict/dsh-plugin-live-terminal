@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
 
     // Kept in step with package.json: it names the running build in the console,
     // which is the fastest way to tell whether a page picked up a new install.
-    const CLIENT_VERSION = '0.3.2';
+    const CLIENT_VERSION = '0.3.3';
     console.log(`[dsh-plugin-live-terminal] client factory loaded (v${CLIENT_VERSION})`);
 
     // The web shell's static module registry always exposes `react` and
@@ -23,13 +23,15 @@ window.__ModuleLoader__.load({
     }
     const modalSupported = !!(React && typeof Primitives?.Modal === 'function');
     const h = React ? React.createElement : null;
+    // DSH's own status marker; the modal and the native job list share it.
+    const StateDot = Primitives?.StateDot || null;
     const MODAL_ROOT_ID = 'dsh-live-terminal-modal-root';
 
     const STYLE_ID = 'dsh-live-terminal-style';
     // Bump whenever the stylesheet text changes: a page that hot-reloaded this
     // plugin keeps the PREVIOUS <style> element, and an id-only check would then
     // leave every new rule (the whole modal, for instance) missing from the page.
-    const STYLE_VERSION = '4';
+    const STYLE_VERSION = '5';
     function ensureStyles() {
       const existing = document.getElementById(STYLE_ID);
       if (existing && existing.dataset.version === STYLE_VERSION) return;
@@ -492,6 +494,18 @@ window.__ModuleLoader__.load({
           color: var(--dsw-alias-label-secondary);
           font-size: 11px;
           line-height: 18px;
+        }
+
+        .dsh-live-modal-dot {
+          flex: none;
+        }
+
+        .dsh-live-modal-duration {
+          flex: none;
+          color: var(--dsw-alias-label-tertiary);
+          font-size: 11px;
+          line-height: 18px;
+          font-variant-numeric: tabular-nums;
         }
 
         .dsh-live-modal-command {
@@ -2381,6 +2395,46 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * Status marker semantics copied from DSH's own job list (`dotState` in
+     * @deepseek-ai/dsh-client-ui-jobs), so the modal and the list that opens it
+     * speak one visual language: `stopping` and `killed` share the attention
+     * color because both mean the work ended on request, not on its own.
+     */
+    function jobDotState(status) {
+      switch (status) {
+        case 'running': return 'ongoing';
+        case 'stopping': return 'warning';
+        case 'completed': return 'done';
+        case 'killed': return 'warning';
+        case 'failed': return 'error';
+        default: return 'done';
+      }
+    }
+
+    /** Display word for a wire status; DSH reads `killed` as "cancelled". */
+    function jobStatusWord(status) {
+      switch (status) {
+        case 'running': return 'running';
+        case 'stopping': return 'stopping';
+        case 'completed': return 'completed';
+        case 'killed': return 'cancelled';
+        case 'failed': return 'failed';
+        default: return '';
+      }
+    }
+
+    /** Elapsed time in DSH's own format: "12s", "7m 35s", "1h 4m". */
+    function formatJobDuration(elapsedMs) {
+      const total = Math.max(0, Math.floor(elapsedMs / 1000));
+      const seconds = total % 60;
+      const minutes = Math.floor(total / 60) % 60;
+      const hours = Math.floor(total / 3600);
+      if (hours > 0) return `${hours}h ${minutes}m`;
+      if (minutes > 0) return `${minutes}m ${seconds}s`;
+      return `${seconds}s`;
+    }
+
+    /**
      * Take the user to the block that runs this job.
      *
      * Tier 1 — the card is already rendered: scroll to it and highlight it.
@@ -2605,7 +2659,9 @@ window.__ModuleLoader__.load({
         jobId,
         kind: job?.kind || rowsMeta[index]?.kind || '',
         command: job?.label || rowsMeta[index]?.label || '',
-        status: job?.status || ''
+        status: job?.status || '',
+        startedAt: Number.isFinite(job?.startedAt) ? job.startedAt : 0,
+        finishedAt: Number.isFinite(job?.finishedAt) ? job.finishedAt : 0
       });
     }
 
@@ -2664,6 +2720,7 @@ window.__ModuleLoader__.load({
       const [locating, setLocating] = React.useState(false);
       const [copied, setCopied] = React.useState(false);
       const [stopping, setStopping] = React.useState(false);
+      const [timing, setTiming] = React.useState({ startedAt: 0, finishedAt: 0 });
       const preRef = React.useRef(null);
       const stickToBottom = React.useRef(true);
 
@@ -2690,6 +2747,10 @@ window.__ModuleLoader__.load({
         setOutput(targetKey ? 'Loading output...' : '');
         setStatus('');
         setActive(initialActive);
+        setTiming({
+          startedAt: Number.isFinite(snapshot?.startedAt) ? snapshot.startedAt : 0,
+          finishedAt: Number.isFinite(snapshot?.finishedAt) ? snapshot.finishedAt : 0
+        });
       }, [targetKey]);
 
       // Poll the host while the modal is open; the loop ends on its own once the
@@ -2723,6 +2784,15 @@ window.__ModuleLoader__.load({
                 setOutput(text);
               }
               if (data.status) setStatus(String(data.status));
+              if (Number.isFinite(data.startedAt) || Number.isFinite(data.finishedAt)) {
+                setTiming((prev) => {
+                  const startedAt = Number.isFinite(data.startedAt) ? data.startedAt : prev.startedAt;
+                  const finishedAt = Number.isFinite(data.finishedAt) ? data.finishedAt : prev.finishedAt;
+                  return startedAt === prev.startedAt && finishedAt === prev.finishedAt
+                    ? prev
+                    : { startedAt, finishedAt };
+                });
+              }
               stillActive = found && data.active === true;
             }
           } catch (e) {}
@@ -2820,16 +2890,32 @@ window.__ModuleLoader__.load({
 
       // A status carried in from the native list names the state immediately;
       // polling then keeps it truthful for a card-sourced target too.
-      const statusLabel = status || snapshot?.status || (active ? 'running' : 'settled');
+      const wireStatus = status || snapshot?.status || '';
+      const statusWord = (wireStatus && jobStatusWord(wireStatus)) || (active ? 'running' : 'settled');
+      const dotTone = wireStatus ? jobDotState(wireStatus) : (active ? 'ongoing' : 'done');
+      const elapsedMs = timing.startedAt
+        ? Math.max(0, (timing.finishedAt || Date.now()) - timing.startedAt)
+        : 0;
+      const durationText = elapsedMs > 0 ? formatJobDuration(elapsedMs) : '';
 
       const body = h('div', { className: 'dsh-live-modal-body', style: MODAL_BODY_STYLE }, [
         h('div', { className: 'dsh-live-modal-meta', key: 'meta' }, [
+          StateDot
+            ? h(StateDot, { key: 'dot', state: dotTone, size: 10, className: 'dsh-live-modal-dot' })
+            : null,
           h('span', {
             className: 'dsh-live-modal-command',
             key: 'command',
             title: snapshot.command || ''
           }, snapshot.command || (snapshot.kind ? `${snapshot.kind} ${targetKey}` : targetKey)),
-          h('span', { className: 'dsh-live-modal-status', key: 'status' }, statusLabel)
+          durationText
+            ? h('span', {
+              className: 'dsh-live-modal-duration',
+              key: 'duration',
+              title: active ? `Running for ${durationText}` : `Took ${durationText}`
+            }, durationText)
+            : null,
+          h('span', { className: 'dsh-live-modal-status', key: 'status' }, statusWord)
         ]),
         h('pre', { className: 'dsh-live-modal-output', key: 'output', ref: preRef, style: MODAL_OUTPUT_STYLE }, output)
       ]);
@@ -2936,6 +3022,10 @@ window.__ModuleLoader__.load({
       MODAL_ROOT_ID,
       MODAL_BODY_STYLE,
       MODAL_OUTPUT_STYLE,
+      jobDotState,
+      jobStatusWord,
+      formatJobDuration,
+      isLiveJobStatus,
       STYLE_VERSION,
       CLIENT_VERSION
     };

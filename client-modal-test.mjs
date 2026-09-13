@@ -163,7 +163,8 @@ function peekModal() {
 }
 
 const ModalStub = (props) => ({ type: 'DSHModal', props });
-const Primitives = { Modal: ModalStub };
+const StateDotStub = (props) => ({ type: 'DSHStateDot', props });
+const Primitives = { Modal: ModalStub, StateDot: StateDotStub };
 const ReactDomClient = {
   createRoot(container) {
     mount.container = container;
@@ -214,7 +215,13 @@ check('it is the output modal', mount.element?.type === internals.OutputModal);
 check('closed modal renders null', renderModal() === null);
 
 // --- live job --------------------------------------------------------------
-internals.openOutputModal({ jobId: 'pwsh-9', kind: 'pwsh', command: 'python backtest.py' });
+// 75s in: the duration cell must read DSH's own format for that age.
+internals.openOutputModal({
+  jobId: 'pwsh-9',
+  kind: 'pwsh',
+  command: 'python backtest.py',
+  startedAt: Date.now() - 75000
+});
 const tree = renderModal();
 
 check('dialog is rendered through the DSH Modal primitive', tree?.type === Primitives.Modal);
@@ -243,15 +250,20 @@ check('output pane is monospaced', String(paneStyle.fontFamily || '').includes('
 check('output pane does not use the default pre margin', paneStyle.margin === 0);
 check('inline styles match the stylesheet constants', paneStyle === internals.MODAL_OUTPUT_STYLE && bodyStyle === internals.MODAL_BODY_STYLE);
 
-// --- meta row: command grows, status pill pinned right ---------------------
+// --- meta row: dot, command, duration, status pill -------------------------
 const meta = Array.isArray(body?.props?.children)
   ? body.props.children.find((child) => child?.props?.className === 'dsh-live-modal-meta')
   : null;
 const metaChildren = (meta?.props?.children || []).filter(Boolean);
-check('meta row has exactly two cells', metaChildren.length === 2, metaChildren.map((c) => c.props.className));
-check('command comes first and carries the tooltip', metaChildren[0]?.props?.className === 'dsh-live-modal-command' && metaChildren[0].props.title === 'python backtest.py');
-check('status pill is last so it cannot be clipped', metaChildren[1]?.props?.className === 'dsh-live-modal-status');
-check('status pill starts on the live status', metaChildren[1]?.props?.children === 'running', metaChildren[1]?.props?.children);
+check('meta row is dot + command + duration + status', metaChildren.length === 4, metaChildren.map((c) => c.props.className || c.type?.name));
+check('status dot leads the row, like the native job list', metaChildren[0]?.type === StateDotStub && metaChildren[0].props.className === 'dsh-live-modal-dot');
+check('running job shows the ongoing marker', metaChildren[0]?.props?.state === 'ongoing', metaChildren[0]?.props?.state);
+check('dot uses the figma size', metaChildren[0]?.props?.size === 10);
+check('command carries the tooltip', metaChildren[1]?.props?.className === 'dsh-live-modal-command' && metaChildren[1].props.title === 'python backtest.py');
+check('duration uses the DSH format', metaChildren[2]?.props?.children === '1m 15s', metaChildren[2]?.props?.children);
+check('duration explains itself while live', metaChildren[2]?.props?.title === 'Running for 1m 15s', metaChildren[2]?.props?.title);
+check('status pill closes the row so it cannot be clipped', metaChildren[3]?.props?.className === 'dsh-live-modal-status');
+check('status pill names the live status', metaChildren[3]?.props?.children === 'running', metaChildren[3]?.props?.children);
 
 // --- footer actions for a live job -----------------------------------------
 function footerButtons(element) {
@@ -274,21 +286,40 @@ check('Stop job invites the action that matches its state', buttons[2].props.tit
 
 // --- finished job: Stop job must not look available ------------------------
 internals.closeOutputModal();
-internals.openOutputModal({ jobId: 'pwsh-4', kind: 'pwsh', command: 'python mkvar.py', status: 'completed' });
+internals.openOutputModal({
+  jobId: 'pwsh-4',
+  kind: 'pwsh',
+  command: 'python mkvar.py',
+  status: 'completed',
+  startedAt: 1000000,
+  finishedAt: 1000000 + 452000
+});
 const finishedTree = renderModal();
 buttons = footerButtons(finishedTree);
 check('Stop job is disabled once the job has finished', buttons[2].props.disabled === true);
 check('Stop job explains why it is disabled', buttons[2].props.title === 'This job has already finished', buttons[2].props.title);
-check('finished job reports its own status', (() => {
-  const bodyChildren = finishedTree?.props?.children?.props?.children || [];
-  const finishedMeta = bodyChildren.find((child) => child?.props?.className === 'dsh-live-modal-meta');
-  return (finishedMeta?.props?.children || []).filter(Boolean)[1]?.props?.children === 'completed';
-})());
+const finishedMeta = (finishedTree?.props?.children?.props?.children || [])
+  .find((child) => child?.props?.className === 'dsh-live-modal-meta');
+const finishedCells = (finishedMeta?.props?.children || []).filter(Boolean);
+check('finished job reports its own status', finishedCells[3]?.props?.children === 'completed', finishedCells[3]?.props?.children);
+check('finished job shows the done marker', finishedCells[0]?.props?.state === 'done', finishedCells[0]?.props?.state);
+check('finished job freezes its duration', finishedCells[2]?.props?.children === '7m 32s', finishedCells[2]?.props?.children);
+check('frozen duration is labelled as total time', finishedCells[2]?.props?.title === 'Took 7m 32s', finishedCells[2]?.props?.title);
+
+// --- a job whose status is not known yet -----------------------------------
+internals.closeOutputModal();
+internals.openOutputModal({ jobId: 'pwsh-7', command: 'npm run build' });
+const unknownTree = renderModal();
+const unknownCells = ((unknownTree?.props?.children?.props?.children || [])
+  .find((child) => child?.props?.className === 'dsh-live-modal-meta')?.props?.children || []).filter(Boolean);
+check('unknown status still shows a marker', unknownCells[0]?.props?.state === 'ongoing', unknownCells[0]?.props?.state);
+check('unknown status hides the duration instead of faking one', unknownCells.length === 3, unknownCells.map((c) => c.props.className || c.type?.name));
 
 // --- stylesheet regressions ------------------------------------------------
 const css = injectedStyles.join('\n');
 check('stylesheet has a command cell that grows and ellipsizes', /\.dsh-live-modal-command\s*\{[^}]*flex:\s*1 1 auto[^}]*text-overflow:\s*ellipsis/.test(css));
 check('stylesheet pins the status pill', /\.dsh-live-modal-status\s*\{[^}]*flex:\s*none/.test(css));
+check('stylesheet pins the dot and the duration', /\.dsh-live-modal-dot\s*\{[^}]*flex:\s*none/.test(css) && /\.dsh-live-modal-duration\s*\{[^}]*font-variant-numeric:\s*tabular-nums/.test(css));
 check('stylesheet gives the danger button real contrast', /\.dsh-live-modal-action-danger\s*\{[^}]*color:\s*#f87171/.test(css));
 check('stylesheet distinguishes disabled actions', /\.dsh-live-modal-action-danger:disabled/.test(css) && /\.dsh-live-modal-action:disabled/.test(css));
 check(

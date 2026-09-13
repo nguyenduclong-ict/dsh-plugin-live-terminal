@@ -506,8 +506,11 @@ export function apply(ctx) {
             found: true,
             active: !isTerminal,
             status: job.status,
+            kind: job.kind || 'pwsh',
             jobId: qJobId,
             command: job.label || '',
+            startedAt: job.startedAt || 0,
+            finishedAt: job.finishedAt || 0,
             output: fullOutput
           }));
         }
@@ -632,8 +635,11 @@ export function apply(ctx) {
               active: !isTerminal,
               isBackground: true,
               status: job.status,
+              kind: job.kind || 'pwsh',
               jobId: jid,
               command: job.label || '',
+              startedAt: job.startedAt || 0,
+              finishedAt: job.finishedAt || 0,
               output: fullOutput
             }));
           }
@@ -648,12 +654,15 @@ export function apply(ctx) {
         return res.end(JSON.stringify({
           found: true,
           active: matched.active,
+          status: matched.active ? 'running' : 'completed',
+          kind: 'pwsh',
           id: matched.id,
           jobId: matched.jobId,
           callId: matched.callId,
           sessionId: matched.sessionId,
           command: matched.command,
           cwd: matched.cwd,
+          startedAt: matched.startedAt || 0,
           output: matched.output,
           finishedAt: matched.finishedAt
         }));

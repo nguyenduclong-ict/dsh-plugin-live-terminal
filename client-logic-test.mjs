@@ -137,5 +137,30 @@ check('a null node is rejected', isJobListRow(null) === false);
 const meta = jobListRowMeta(fakeRow({ label: 'node long-task.js', kind: 'pwsh' }));
 check('row metadata reads the label and kind', meta.label === 'node long-task.js' && meta.kind === 'pwsh', meta);
 
+// --- status vocabulary shared with DSH's own job list ----------------------
+const { jobDotState, jobStatusWord, formatJobDuration, isLiveJobStatus } = internals;
+
+check('running maps to the animated ongoing marker', jobDotState('running') === 'ongoing');
+check('stopping maps to the attention marker', jobDotState('stopping') === 'warning');
+check('completed maps to the done marker', jobDotState('completed') === 'done');
+check('killed shares the attention marker with stopping, like DSH', jobDotState('killed') === 'warning');
+check('failed maps to the error marker', jobDotState('failed') === 'error');
+check('an unknown status falls back to the done marker', jobDotState('waiting') === 'done' && jobDotState('') === 'done');
+
+check('running reads as running', jobStatusWord('running') === 'running');
+check('completed reads as completed', jobStatusWord('completed') === 'completed');
+check('killed reads as "cancelled", exactly like DSH', jobStatusWord('killed') === 'cancelled');
+check('failed reads as failed', jobStatusWord('failed') === 'failed');
+check('an unknown status has no word of its own', jobStatusWord('weird') === '');
+
+check('only running and stopping count as live', isLiveJobStatus('running') && isLiveJobStatus('stopping') && !isLiveJobStatus('completed') && !isLiveJobStatus('killed') && !isLiveJobStatus('failed'));
+
+check('seconds only', formatJobDuration(12000) === '12s', formatJobDuration(12000));
+check('minutes keep their seconds, unpadded like DSH', formatJobDuration(455000) === '7m 35s', formatJobDuration(455000));
+check('a 5-second remainder is not zero-padded', formatJobDuration(425000) === '7m 5s', formatJobDuration(425000));
+check('hours drop the seconds', formatJobDuration(3600000 + 4 * 60000 + 30000) === '1h 4m', formatJobDuration(3600000 + 4 * 60000 + 30000));
+check('sub-second elapsed time reads as 0s', formatJobDuration(400) === '0s', formatJobDuration(400));
+check('a negative elapsed time cannot produce nonsense', formatJobDuration(-5000) === '0s', formatJobDuration(-5000));
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 process.exit(failures === 0 ? 0 : 1);

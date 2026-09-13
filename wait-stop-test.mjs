@@ -174,6 +174,35 @@ check('targetless stop left every job alive', !job.cancelled && !otherJob.cancel
 const stop5 = await postStop(qs({ jobId: 'pwsh-2' }));
 check('plain stop still kills the named job', stop5.body.killed === true && otherJob.cancelled === true, stop5.body);
 
+// --- 6. the output route feeds the modal's status row -------------------------
+// The modal reads a single poll for the dot, the status word and the timing, so
+// those fields have to survive the round trip with the right types.
+function getOutput(query) {
+  return new Promise((resolve) => {
+    const res = { setHeader() {}, end: (body) => resolve(JSON.parse(body)) };
+    routes.get('/api/live-terminal/output')({ url: `/api/live-terminal/output?${query}` }, res);
+  });
+}
+
+job.status = 'running';
+job.finishedAt = undefined;
+const liveView = await getOutput(qs({ jobId: 'pwsh-1' }));
+check('output route reports the wire status', liveView.status === 'running', liveView.status);
+check('output route reports the job kind', liveView.kind === 'pwsh', liveView.kind);
+check('output route reports startedAt so the modal can time the job', liveView.startedAt === 1_700_000_000_000, liveView.startedAt);
+check('a running job reads as active', liveView.active === true);
+
+job.status = 'completed';
+job.finishedAt = 1_700_000_000_000 + 452_000;
+const doneView = await getOutput(qs({ jobId: 'pwsh-1' }));
+check('a finished job reads as inactive', doneView.active === false);
+check('a finished job keeps its status word', doneView.status === 'completed', doneView.status);
+check('output route reports finishedAt so the duration can freeze', doneView.finishedAt === 1_700_000_000_000 + 452_000, doneView.finishedAt);
+
+job.status = 'killed';
+const killedView = await getOutput(qs({ jobId: 'pwsh-1' }));
+check('a killed job reports the wire status the modal renames', killedView.status === 'killed', killedView.status);
+
 console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${failures} CHECK(S) FAILED`}`);
 console.log('plugin logs:', JSON.stringify(logs.filter(([, m]) => String(m).includes(PLUGIN)), null, 0));
 process.exit(failures === 0 ? 0 : 1);
