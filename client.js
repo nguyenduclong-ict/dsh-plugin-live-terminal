@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
 
     // Kept in step with package.json: it names the running build in the console,
     // which is the fastest way to tell whether a page picked up a new install.
-    const CLIENT_VERSION = '0.3.1';
+    const CLIENT_VERSION = '0.3.2';
     console.log(`[dsh-plugin-live-terminal] client factory loaded (v${CLIENT_VERSION})`);
 
     // The web shell's static module registry always exposes `react` and
@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
     // Bump whenever the stylesheet text changes: a page that hot-reloaded this
     // plugin keeps the PREVIOUS <style> element, and an id-only check would then
     // leave every new rule (the whole modal, for instance) missing from the page.
-    const STYLE_VERSION = '3';
+    const STYLE_VERSION = '4';
     function ensureStyles() {
       const existing = document.getElementById(STYLE_ID);
       if (existing && existing.dataset.version === STYLE_VERSION) return;
@@ -471,10 +471,14 @@ window.__ModuleLoader__.load({
           overflow: hidden;
         }
 
+        /* Meta row: the command takes the free width and ellipsizes; the status
+           pill is pinned right, so a long command can neither push it around nor
+           be clipped against it. */
         .dsh-live-modal-meta {
           display: flex;
           align-items: center;
-          gap: 8px;
+          gap: 10px;
+          min-width: 0;
           color: var(--dsw-alias-label-tertiary);
           font-size: 12px;
           line-height: 18px;
@@ -482,8 +486,8 @@ window.__ModuleLoader__.load({
 
         .dsh-live-modal-status {
           flex: none;
-          padding: 0 6px;
-          border-radius: 5px;
+          padding: 0 8px;
+          border-radius: 999px;
           background: var(--dsw-alias-fill-l2);
           color: var(--dsw-alias-label-secondary);
           font-size: 11px;
@@ -491,10 +495,11 @@ window.__ModuleLoader__.load({
         }
 
         .dsh-live-modal-command {
+          flex: 1 1 auto;
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
-          white-space: pre;
+          white-space: nowrap;
           font-family: var(--dsw-font-markdown-code-block, monospace);
           font-size: 12px;
           color: var(--dsw-alias-label-secondary);
@@ -504,9 +509,10 @@ window.__ModuleLoader__.load({
           box-sizing: border-box;
           width: 100%;
           /* The primitive centers a fixed layer with no scroller, so the pane
-             has to keep the whole dialog inside the viewport on its own. The
+             has to keep the whole dialog inside the viewport on its own. A low
+             floor keeps a job with no output yet from opening an empty box. The
              same values are applied inline from MODAL_OUTPUT_STYLE. */
-          min-height: 30vh;
+          min-height: 8vh;
           max-height: min(70vh, calc(100vh - 260px));
           margin: 0;
           padding: 12px 14px;
@@ -551,26 +557,33 @@ window.__ModuleLoader__.load({
           cursor: pointer;
         }
 
-        .dsh-live-modal-action:hover {
+        .dsh-live-modal-action:hover:not(:disabled) {
           color: var(--dsw-alias-label-primary);
           border-color: var(--dsw-alias-border-l2, var(--dsw-alias-border-l1));
         }
 
-        .dsh-live-modal-action:disabled {
-          opacity: 0.5;
-          cursor: not-allowed;
-        }
-
         .dsh-live-modal-action-danger {
-          border-color: rgba(239, 68, 68, 0.4);
-          background: rgba(239, 68, 68, 0.12);
-          color: #ef4444;
+          border-color: rgba(239, 68, 68, 0.55);
+          background: rgba(239, 68, 68, 0.18);
+          color: #f87171;
+          font-weight: 500;
         }
 
-        .dsh-live-modal-action-danger:hover {
-          background: rgba(239, 68, 68, 0.22);
-          border-color: #ef4444;
-          color: #f87171;
+        .dsh-live-modal-action-danger:hover:not(:disabled) {
+          background: #dc2626;
+          border-color: #dc2626;
+          color: #ffffff;
+        }
+
+        /* Wins over the danger colours: a disabled action must read as disabled,
+           not as a slightly dimmer version of the live one. */
+        .dsh-live-modal-action:disabled,
+        .dsh-live-modal-action-danger:disabled {
+          background: transparent;
+          border-color: var(--dsw-alias-border-l1);
+          color: var(--dsw-alias-label-tertiary);
+          opacity: 0.45;
+          cursor: not-allowed;
         }
       `;
       document.head.appendChild(style);
@@ -2362,6 +2375,11 @@ window.__ModuleLoader__.load({
 
     const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+    /** Wire statuses that mean the job still has work in flight. */
+    function isLiveJobStatus(status) {
+      return status === 'running' || status === 'stopping';
+    }
+
     /**
      * Take the user to the block that runs this job.
      *
@@ -2586,7 +2604,8 @@ window.__ModuleLoader__.load({
       openOutputModal({
         jobId,
         kind: job?.kind || rowsMeta[index]?.kind || '',
-        command: job?.label || rowsMeta[index]?.label || ''
+        command: job?.label || rowsMeta[index]?.label || '',
+        status: job?.status || ''
       });
     }
 
@@ -2622,7 +2641,7 @@ window.__ModuleLoader__.load({
       width: '100%',
       margin: 0,
       padding: '12px 14px',
-      minHeight: '30vh',
+      minHeight: '8vh',
       maxHeight: 'min(70vh, calc(100vh - 260px))',
       overflow: 'auto',
       whiteSpace: 'pre-wrap',
@@ -2659,22 +2678,28 @@ window.__ModuleLoader__.load({
       const jobId = snapshot?.jobId || null;
       const callId = snapshot?.callId || null;
       const targetKey = jobId || callId || null;
+      // A status carried in from the native list avoids a beat where Stop job
+      // looks available on a job that already finished.
+      const initialActive = snapshot?.status ? isLiveJobStatus(snapshot.status) : true;
+
+      // Reset per target BEFORE paint: the first frame of a job that already
+      // finished must not look live (which would show an enabled "Stop job").
+      const useBeforePaint = React.useLayoutEffect ?? React.useEffect;
+      useBeforePaint(() => {
+        stickToBottom.current = true;
+        setOutput(targetKey ? 'Loading output...' : '');
+        setStatus('');
+        setActive(initialActive);
+      }, [targetKey]);
 
       // Poll the host while the modal is open; the loop ends on its own once the
       // job settles, and the effect teardown cancels it on close or target swap.
       React.useEffect(() => {
-        if (!targetKey) {
-          setOutput('');
-          return undefined;
-        }
+        if (!targetKey) return undefined;
         let cancelled = false;
         let timer = null;
         let lastText = null;
         let settledReads = 0;
-        stickToBottom.current = true;
-        setOutput('Loading output...');
-        setStatus('');
-        setActive(true);
 
         const tick = async () => {
           if (cancelled) return;
@@ -2787,20 +2812,24 @@ window.__ModuleLoader__.load({
           key: 'stop',
           type: 'button',
           className: 'dsh-live-modal-action dsh-live-modal-action-danger',
-          title: 'Stop the background job',
-          disabled: !jobId || stopping,
+          title: active ? 'Stop the background job' : 'This job has already finished',
+          disabled: !jobId || stopping || !active,
           onClick: onStop
         }, stopping ? 'Stopping...' : 'Stop job')
       ]);
 
+      // A status carried in from the native list names the state immediately;
+      // polling then keeps it truthful for a card-sourced target too.
+      const statusLabel = status || snapshot?.status || (active ? 'running' : 'settled');
+
       const body = h('div', { className: 'dsh-live-modal-body', style: MODAL_BODY_STYLE }, [
         h('div', { className: 'dsh-live-modal-meta', key: 'meta' }, [
-          h('span', { className: 'dsh-live-modal-status', key: 'status' }, status || (active ? 'running' : 'settled')),
           h('span', {
             className: 'dsh-live-modal-command',
             key: 'command',
             title: snapshot.command || ''
-          }, snapshot.command || (snapshot.kind ? `${snapshot.kind} ${targetKey}` : targetKey))
+          }, snapshot.command || (snapshot.kind ? `${snapshot.kind} ${targetKey}` : targetKey)),
+          h('span', { className: 'dsh-live-modal-status', key: 'status' }, statusLabel)
         ]),
         h('pre', { className: 'dsh-live-modal-output', key: 'output', ref: preRef, style: MODAL_OUTPUT_STYLE }, output)
       ]);
@@ -2906,7 +2935,9 @@ window.__ModuleLoader__.load({
       modalSupported,
       MODAL_ROOT_ID,
       MODAL_BODY_STYLE,
-      MODAL_OUTPUT_STYLE
+      MODAL_OUTPUT_STYLE,
+      STYLE_VERSION,
+      CLIENT_VERSION
     };
 
     return module.exports;
