@@ -4,7 +4,10 @@ window.__ModuleLoader__.load({
     const module = { exports: {} };
     const exports = module.exports;
 
-    console.log('[dsh-plugin-live-terminal] client factory loaded!');
+    // Kept in step with package.json: it names the running build in the console,
+    // which is the fastest way to tell whether a page picked up a new install.
+    const CLIENT_VERSION = '0.3.1';
+    console.log(`[dsh-plugin-live-terminal] client factory loaded (v${CLIENT_VERSION})`);
 
     // The web shell's static module registry always exposes `react` and
     // `@deepseek-ai/dsh-client-ui-primitives` (see the boot bundle's
@@ -20,12 +23,21 @@ window.__ModuleLoader__.load({
     }
     const modalSupported = !!(React && typeof Primitives?.Modal === 'function');
     const h = React ? React.createElement : null;
+    const MODAL_ROOT_ID = 'dsh-live-terminal-modal-root';
 
     const STYLE_ID = 'dsh-live-terminal-style';
+    // Bump whenever the stylesheet text changes: a page that hot-reloaded this
+    // plugin keeps the PREVIOUS <style> element, and an id-only check would then
+    // leave every new rule (the whole modal, for instance) missing from the page.
+    const STYLE_VERSION = '3';
     function ensureStyles() {
-      if (document.getElementById(STYLE_ID)) return;
+      const existing = document.getElementById(STYLE_ID);
+      if (existing && existing.dataset.version === STYLE_VERSION) return;
+      if (existing) existing.remove();
+
       const style = document.createElement('style');
       style.id = STYLE_ID;
+      style.dataset.version = STYLE_VERSION;
       style.textContent = `
         /* Live Terminal Box Container */
         .dsh-live-terminal-block {
@@ -446,6 +458,8 @@ window.__ModuleLoader__.load({
         .dsh-live-modal {
           width: min(860px, calc(100vw - 64px)) !important;
           max-width: min(860px, calc(100vw - 64px)) !important;
+          max-height: calc(100vh - 48px) !important;
+          overflow: hidden !important;
         }
 
         .dsh-live-modal-body {
@@ -453,6 +467,8 @@ window.__ModuleLoader__.load({
           flex-direction: column;
           gap: 8px;
           min-width: 0;
+          max-height: calc(100vh - 210px);
+          overflow: hidden;
         }
 
         .dsh-live-modal-meta {
@@ -488,9 +504,10 @@ window.__ModuleLoader__.load({
           box-sizing: border-box;
           width: 100%;
           /* The primitive centers a fixed layer with no scroller, so the pane
-             has to keep the whole dialog inside the viewport on its own. */
+             has to keep the whole dialog inside the viewport on its own. The
+             same values are applied inline from MODAL_OUTPUT_STYLE. */
           min-height: 30vh;
-          max-height: min(58vh, calc(100vh - 250px));
+          max-height: min(70vh, calc(100vh - 260px));
           margin: 0;
           padding: 12px 14px;
           overflow: auto;
@@ -2586,6 +2603,39 @@ window.__ModuleLoader__.load({
     }
 
     // --- Modal component --------------------------------------------------
+    // Sizing that MUST hold for the modal to stay usable: the DSH Modal
+    // primitive portals a fixed, non-scrolling layer, so an unbounded pane
+    // pushes the title and the footer out of the viewport. Applied inline as
+    // well as in the stylesheet, so a stale, overridden, or missing rule cannot
+    // turn the dialog into a full-page wall of text.
+    const MODAL_BODY_STYLE = {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '8px',
+      minWidth: 0,
+      maxHeight: 'calc(100vh - 210px)',
+      overflow: 'hidden'
+    };
+
+    const MODAL_OUTPUT_STYLE = {
+      boxSizing: 'border-box',
+      width: '100%',
+      margin: 0,
+      padding: '12px 14px',
+      minHeight: '30vh',
+      maxHeight: 'min(70vh, calc(100vh - 260px))',
+      overflow: 'auto',
+      whiteSpace: 'pre-wrap',
+      wordBreak: 'break-word',
+      border: '1px solid var(--dsw-alias-border-l1)',
+      borderRadius: '10px',
+      background: 'var(--dsw-alias-markdown-code-block)',
+      color: 'var(--dsw-alias-label-secondary)',
+      fontFamily: 'var(--dsw-font-markdown-code-block, monospace)',
+      fontSize: '12px',
+      lineHeight: '20px'
+    };
+
     function OutputModal() {
       const [snapshot, setSnapshot] = React.useState(() => outputModalState.target);
       const [output, setOutput] = React.useState('');
@@ -2743,7 +2793,7 @@ window.__ModuleLoader__.load({
         }, stopping ? 'Stopping...' : 'Stop job')
       ]);
 
-      const body = h('div', { className: 'dsh-live-modal-body' }, [
+      const body = h('div', { className: 'dsh-live-modal-body', style: MODAL_BODY_STYLE }, [
         h('div', { className: 'dsh-live-modal-meta', key: 'meta' }, [
           h('span', { className: 'dsh-live-modal-status', key: 'status' }, status || (active ? 'running' : 'settled')),
           h('span', {
@@ -2752,7 +2802,7 @@ window.__ModuleLoader__.load({
             title: snapshot.command || ''
           }, snapshot.command || (snapshot.kind ? `${snapshot.kind} ${targetKey}` : targetKey))
         ]),
-        h('pre', { className: 'dsh-live-modal-output', key: 'output', ref: preRef }, output)
+        h('pre', { className: 'dsh-live-modal-output', key: 'output', ref: preRef, style: MODAL_OUTPUT_STYLE }, output)
       ]);
 
       return h(Primitives.Modal, {
@@ -2780,17 +2830,31 @@ window.__ModuleLoader__.load({
         console.warn('[dsh-plugin-live-terminal] sessions store unavailable:', e);
       }
 
-      // The shared output modal lives in the shell's overlay layer.
+      // The modal mounts into its own React root appended to <body>. It portals
+      // to the document either way, so a slot registration would add a moving
+      // part (and a scope question) without changing where it renders — and a
+      // modal that fails to mount is a modal the user never sees. Without the
+      // shell's react/react-dom/primitives the Output button falls back to the
+      // older scroll-to-card action instead.
       if (modalSupported) {
         try {
-          ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-            name: 'shell.overlay',
-            id: 'dsh-live-terminal-output',
-            order: 40
-          }, OutputModal));
+          let container = document.getElementById(MODAL_ROOT_ID);
+          if (!container) {
+            container = document.createElement('div');
+            container.id = MODAL_ROOT_ID;
+            document.body.appendChild(container);
+          }
+          const reactDomClient = require('react-dom/client');
+          if (!container.__dshLiveTerminalRoot) {
+            container.__dshLiveTerminalRoot = reactDomClient.createRoot(container);
+          }
+          container.__dshLiveTerminalRoot.render(h(OutputModal));
+          console.info('[dsh-plugin-live-terminal] output modal mounted');
         } catch (e) {
-          console.warn('[dsh-plugin-live-terminal] could not register the output modal:', e);
+          console.warn('[dsh-plugin-live-terminal] output modal mount failed:', e);
         }
+      } else {
+        console.info('[dsh-plugin-live-terminal] output modal disabled (react/primitives unavailable)');
       }
 
       // A click on a native background-job row opens that job's output.
@@ -2828,13 +2892,21 @@ window.__ModuleLoader__.load({
       scheduleUpdate();
     };
 
-    // Pure helpers exposed for `client-logic-test.mjs` (no DOM required).
+    // Pure helpers plus the modal store, exposed for `client-logic-test.mjs` and
+    // `client-modal-test.mjs` (neither needs a real DOM or renderer).
     exports.__internals = {
       orderedJobsLikeNative,
       sameJobMeta,
       resolveJobIdForRow,
       jobListRowMeta,
-      isJobListRow
+      isJobListRow,
+      openOutputModal,
+      closeOutputModal,
+      OutputModal,
+      modalSupported,
+      MODAL_ROOT_ID,
+      MODAL_BODY_STYLE,
+      MODAL_OUTPUT_STYLE
     };
 
     return module.exports;
