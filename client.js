@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
 
     // Kept in step with package.json: it names the running build in the console,
     // which is the fastest way to tell whether a page picked up a new install.
-    const CLIENT_VERSION = '0.3.4';
+    const CLIENT_VERSION = '0.3.5';
     console.log(`[dsh-plugin-live-terminal] client factory loaded (v${CLIENT_VERSION})`);
 
     // The web shell's static module registry always exposes `react` and
@@ -31,7 +31,7 @@ window.__ModuleLoader__.load({
     // Bump whenever the stylesheet text changes: a page that hot-reloaded this
     // plugin keeps the PREVIOUS <style> element, and an id-only check would then
     // leave every new rule (the whole modal, for instance) missing from the page.
-    const STYLE_VERSION = '6';
+    const STYLE_VERSION = '7';
     function ensureStyles() {
       const existing = document.getElementById(STYLE_ID);
       if (existing && existing.dataset.version === STYLE_VERSION) return;
@@ -519,7 +519,11 @@ window.__ModuleLoader__.load({
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
-          font-family: var(--dsw-font-markdown-code-block, monospace);
+          /* DSH's code family. NOT --dsw-font-markdown-code-block: that token is
+             the shorthand "11px/19px var(--ds-font-family-code)", so using it as
+             a family makes the declaration invalid and the text falls back to the
+             UI sans font. */
+          font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace);
           font-size: 12px;
           color: var(--dsw-alias-label-secondary);
         }
@@ -542,7 +546,7 @@ window.__ModuleLoader__.load({
           border-radius: 10px;
           background: var(--dsw-alias-markdown-code-block);
           color: var(--dsw-alias-label-secondary);
-          font-family: var(--dsw-font-markdown-code-block, monospace);
+          font-family: var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace);
           font-size: 12px;
           line-height: 20px;
         }
@@ -2711,7 +2715,7 @@ window.__ModuleLoader__.load({
       borderRadius: '10px',
       background: 'var(--dsw-alias-markdown-code-block)',
       color: 'var(--dsw-alias-label-secondary)',
-      fontFamily: 'var(--dsw-font-markdown-code-block, monospace)',
+      fontFamily: 'var(--ds-font-family-code, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace)',
       fontSize: '12px',
       lineHeight: '20px'
     };

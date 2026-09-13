@@ -247,6 +247,7 @@ check('output pane floor stays low for an empty job', paneStyle.minHeight === '8
 check('output pane scrolls itself', paneStyle.overflow === 'auto');
 check('output pane wraps long lines', paneStyle.whiteSpace === 'pre-wrap' && paneStyle.wordBreak === 'break-word');
 check('output pane is monospaced', String(paneStyle.fontFamily || '').includes('monospace'), paneStyle.fontFamily);
+check('output pane uses DSH\'s code family, not the font shorthand token', String(paneStyle.fontFamily || '').includes('--ds-font-family-code'), paneStyle.fontFamily);
 check('output pane does not use the default pre margin', paneStyle.margin === 0);
 check('inline styles match the stylesheet constants', paneStyle === internals.MODAL_OUTPUT_STYLE && bodyStyle === internals.MODAL_BODY_STYLE);
 
@@ -339,6 +340,13 @@ const css = injectedStyles.join('\n');
 check('stylesheet has a command cell that grows and ellipsizes', /\.dsh-live-modal-command\s*\{[^}]*flex:\s*1 1 auto[^}]*text-overflow:\s*ellipsis/.test(css));
 check('stylesheet pins the dot and the duration', /\.dsh-live-modal-dot\s*\{[^}]*flex:\s*none/.test(css) && /\.dsh-live-modal-duration\s*\{[^}]*font-variant-numeric:\s*tabular-nums/.test(css));
 check('stylesheet hides the assistive-tech status text', /\.dsh-live-modal-sr\s*\{[^}]*clip:\s*rect\(0 0 0 0\)/.test(css));
+check('stylesheet sets the code family on the command cell', /\.dsh-live-modal-command\s*\{[^}]*font-family:\s*var\(--ds-font-family-code/.test(css));
+check('stylesheet sets the code family on the output pane', /\.dsh-live-modal-output\s*\{[^}]*font-family:\s*var\(--ds-font-family-code/.test(css));
+check(
+  'no rule feeds a font shorthand token to font-family (invalid, silently dropped)',
+  !/font-family:\s*var\(--dsw-font-markdown-code-block/.test(css)
+);
+check('the inline card banner keeps using that token as the shorthand it is', /font:\s*var\(--dsw-font-markdown-code-block-small/.test(css));
 check('the visible status pill is gone', css.indexOf('.dsh-live-modal-status') === -1);
 check('stylesheet gives the danger button real contrast', /\.dsh-live-modal-action-danger\s*\{[^}]*color:\s*#f87171/.test(css));
 check('stylesheet distinguishes disabled actions', /\.dsh-live-modal-action-danger:disabled/.test(css) && /\.dsh-live-modal-action:disabled/.test(css));
