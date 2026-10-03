@@ -1,150 +1,46 @@
 # dsh-plugin-live-terminal
 
-[English](README.md) | [Tiếng Việt](#tiếng-việt) | [中文](#中文)
+Session-scoped live output for DeepSeek Harness Web UI.
 
-A real-time live streaming terminal output plugin for **DeepSeek Harness (DSH Desktop)**.
+## Migrated interface
 
-By default, DSH buffers standard output and only presents the completed terminal card once the command settles. **dsh-plugin-live-terminal** intercepts stdout chunks during execution and streams them directly into an expandable, native-styled live terminal inside the conversation view in real time.
+The expandable **Live Terminal** panel appears below the conversation composer through the public `conversation.composer.dock` Slot. Native tool cards and the background-job list are preserved. The previous body-mounted modal, card interception and “View block” history navigation are not provided by this version.
 
----
+Open the panel and select a retained job or observed shell command. You can read and copy its output. **Stop job / command** asks for confirmation and requests termination of its producer. **Stop waiting**, shown during a waiting `job_output` call, aborts only the wait and leaves the job running.
 
-## Features
+Closing the panel stops browser polling. Changing conversations resets the selection and aborts pending requests. Text uses the locale service (English, Brazilian Portuguese and Chinese); styles use DSH theme aliases.
 
-- 🟢 **Real-time Live Stream**: View stdout lines as they are produced every 250ms rather than waiting for command completion.
-- 🎨 **100% Native Design**: Seamlessly aligns with DSH's official `--dsw-*` design tokens, font hierarchy, and theme colors (Catppuccin, Dark, Light).
-- 📌 **Pinned Sticky Header**: The command prompt header remains pinned while the output scrolls independently.
-- ⚡ **Zero External Dependencies**: Lightweight Cordis client/server extension with automatic lifecycle cleanup upon process settlement.
-- ⏹️ **Stop, Scoped to the Right Thing**: On a `job_output` card, **Stop** ends only the waiting tool call and leaves the background job running; on a `pwsh`/`bash` card it still kills the job or process.
-- 🖥️ **Output Modal**: From a `job_output` card, or by clicking a row in DSH's own background-job list, the job's output opens in a modal with **View block** (jump to the card running it — paging older history in when the transcript has not loaded it yet), **Copy**, and **Stop job**. It reads output by job id, so it still works once the spawning card is out of the transcript. The status row reuses DSH's own vocabulary — the state dot of the native job list (`killed` reads as *cancelled* in its tooltip) plus the run duration — and **Stop job** is disabled once the job has finished.
+## Contracts and limits
 
----
+- Source migration targets DSH `0.2.0-rc.2` and Cordis `4.0.4`; runtime compatibility has not been validated. Older DSH versions are not supported by this migration.
+- Jobs use public `list/get/readAt/kill` methods. Absolute output reads do not consume the model cursor.
+- Every route requires a session ID and selects records by ID within that session. Unowned records are excluded. The session ID is a scope selector, not an authentication secret; authentication remains the Harness web server's responsibility.
+- Shell observation uses an effect-owned, reversible wrapper around public `subprocess.spawn`; the installed contract has no observer-registration API. The original handle is returned unchanged, and collected stdout is read without consuming producer streams.
+- Only subprocesses carrying `DSH_SESSION_ID` and the plugin's `DSH_CALL_ID` contribution are observed. Piped/uncollected output, separate stderr and PTYs are not supported.
+- Host stdout collection polls every 150 ms. While open, the Client polls the list every second and active output every 250 ms. These are intervals, not latency guarantees.
+- Job output follows registry retention. Shell output is capped at 300,000 characters and 50 finished shell records. Truncation is indicated. Plugin disposal clears its observation state and timers without terminating producers.
 
 ## Installation
 
-### For DSH Desktop
+Use the Harness bundle manager in the intended profile. For a local checkout, supply its absolute directory to `install_bundle`. Installation affects all sessions in that profile; its application result determines whether a restart is needed. Do not manually edit profile manifests or run a package manager in the profile directory.
 
-#### Windows (PowerShell)
+No installation or restart was performed for this migration.
 
-```powershell
-cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
-& "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
-```
+## Validation status
 
-#### macOS (Terminal)
+Final source changes have not been tested, syntax-checked, installed or exercised in a browser/runtime. No push or PR was performed. Existing tests contain assumptions about the previous Client and legacy mocks and do not establish compatibility with this migration. Validation is left to the user.
 
-```bash
-cd "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web"
-"$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
-```
+## Português
 
-#### Linux (Terminal)
-
-```bash
-cd "$HOME/.config/dsh-desktop/harness/profiles/web"
-"$HOME/.config/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
-```
-
-*After installing, restart **DSH Desktop** to apply the plugin.*
-
----
-
-### For DSH CLI (All Platforms)
-
-If you are using the standalone `dsh` CLI:
-
-```bash
-dsh plugin --profile web add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
-```
-
----
-
-## How It Works
-
-1. When a shell command (`pwsh`, `bash`) begins execution, the plugin detects the running block.
-2. Clicking the tool call row expands the **Live Terminal View**.
-3. Stdout stream is captured from `ctx.subprocess` and fed into the live terminal console in real-time.
-4. Once the process settles, the live viewer gracefully steps aside and hands over to DSH's native settled terminal card.
-5. Job-centric views (a `job_output` card, or a row of the session's background-job list) open one shared **output modal**; it streams by job id from the host, so it keeps working even when the card that spawned the job has left the transcript — the case where the old "View Job" action answered *Job not found*.
-
----
-
-<a name="tiếng-việt"></a>
+O **Terminal ao vivo** fica abaixo do compositor e preserva os cards nativos. **Parar job / comando** solicita o encerramento do produtor; **Parar espera** cancela somente a espera de `job_output`. Saídas truncadas são sinalizadas. A migração ainda não foi validada em execução nem instalada.
 
 ## Tiếng Việt
 
-Plugin hỗ trợ xem **Live Stream Terminal Output** theo thời gian thực cho **DeepSeek Harness (DSH Desktop)**.
-
-### Tính năng nổi bật
-
-- 🟢 **Xem log trực tiếp**: Không cần chờ lệnh kết thúc mới xem được kết quả, log xuất hiện ngay khi script in ra console.
-- 🎨 **Giao diện chuẩn gốc**: Đồng bộ 100% với giao diện, màu sắc và theme của DSH Desktop.
-- 📌 **Cố định Header**: Header chứa câu lệnh luôn được giữ cố định ở trên cùng khi cuộn xem log bên dưới.
-- ⚡ **Tự động dọn dẹp**: Khi lệnh chạy xong, giao diện tự động trả lại khối hiển thị mặc định của DSH.
-- ⏹️ **Stop đúng phạm vi**: Trên card `job_output`, nút **Stop** chỉ kết thúc tool call đang chờ, job nền vẫn tiếp tục chạy; trên card `pwsh`/`bash` thì vẫn kill job/tiến trình như cũ.
-- 🖥️ **Modal xem output**: Từ card `job_output`, hoặc click vào một dòng trong danh sách background job của DSH, output của job mở trong modal kèm **View block** (nhảy tới card đang chạy job đó — tự nạp thêm history cũ nếu transcript chưa load tới), **Copy** và **Stop job**. Modal đọc output theo job id nên vẫn dùng được khi card khởi tạo job đã rời khỏi transcript. Hàng trạng thái dùng đúng ngôn ngữ của DSH — dot trạng thái y như danh sách job native (`killed` hiển thị là *cancelled* trong tooltip) — kèm thời gian chạy, và **Stop job** bị vô hiệu hoá khi job đã kết thúc.
-
-### Cách cài đặt trên DSH Desktop
-
-#### Windows (PowerShell):
-```powershell
-cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
-& "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
-```
-
-#### macOS (Terminal):
-```bash
-cd "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web"
-"$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
-```
-
-#### Linux (Terminal):
-```bash
-cd "$HOME/.config/dsh-desktop/harness/profiles/web"
-"$HOME/.config/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
-```
-
-*Khởi động lại DSH Desktop sau khi cài đặt.*
-
----
-
-<a name="中文"></a>
+Bảng **Live Terminal** nằm dưới trình soạn thảo và giữ nguyên thẻ công cụ gốc. **Stop job / command** yêu cầu dừng tiến trình; **Stop waiting** chỉ hủy việc chờ `job_output`. Bản chuyển đổi này chưa được kiểm tra trong runtime hoặc cài đặt.
 
 ## 中文
 
-适用于 **DeepSeek Harness (DSH Desktop)** 的实时终端流式输出查看插件。
-
-### 功能特点
-
-- 🟢 **实时流式输出**：命令运行时无需等待完成，实时查看标准输出（stdout）。
-- 🎨 **原生样式对齐**：完全适配 DSH 官方 `--dsw-*` 设计规范及主题（Catppuccin、暗色、亮色）。
-- 📌 **固定命令头**：支持独立滚动日志，保持顶部命令提示栏固定。
-- ⚡ **自动交接**：命令执行完毕后自动切回官方默认结果展示卡片。
-- ⏹️ **按上下文停止**：在 `job_output` 卡片上，**Stop** 只结束正在等待的工具调用，后台任务继续运行；在 `pwsh`/`bash` 卡片上仍然终止任务或进程。
-- 🖥️ **输出弹窗**：从 `job_output` 卡片，或点击 DSH 后台任务列表中的一行，即可在弹窗中查看该任务的输出，并提供 **View block**（跳转到运行该任务的卡片，必要时自动加载更早的历史）、**Copy** 与 **Stop job**。弹窗按 job id 读取输出，因此即便发起任务的卡片已离开对话记录也仍然可用。状态行沿用 DSH 自身的表达方式 — 与后台任务列表一致的状态圆点（`killed` 在提示中显示为 *cancelled*）— 并附带运行时长；任务结束后 **Stop job** 会被禁用。
-
-### DSH Desktop 安装方法
-
-#### Windows (PowerShell):
-```powershell
-cd "$env:APPDATA\dsh-desktop\harness\profiles\web"
-& "$env:APPDATA\dsh-desktop\harness\.desktop-bin\pnpm.cmd" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
-```
-
-#### macOS (Terminal):
-```bash
-cd "$HOME/Library/Application Support/dsh-desktop/harness/profiles/web"
-"$HOME/Library/Application Support/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
-```
-
-#### Linux (Terminal):
-```bash
-cd "$HOME/.config/dsh-desktop/harness/profiles/web"
-"$HOME/.config/dsh-desktop/harness/.desktop-bin/pnpm" add https://github.com/nguyenduclong-ict/dsh-plugin-live-terminal
-```
-
-*安装完成后重启 DSH Desktop 即可。*
-
----
+**实时终端**位于会话输入区下方，不修改原生工具卡片。**停止任务 / 命令**请求终止执行；**停止等待**仅取消 `job_output` 的等待。输出截断会显示提示。本次迁移尚未经过运行时验证或安装。
 
 ## License
 
